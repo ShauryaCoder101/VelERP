@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/Shaurya/Desktop/Velocity%20ERP/app/layout.tsx"],"sourcesContent":["import \"./globals.css\";\r\nimport type { ReactNode } from \"react\";\r\n\r\nexport const metadata = {\r\n  title: \"ERPSuite - Event Management ERP\",\r\n  description: \"ERP dashboard layout for an event management firm.\"\r\n};\r\n\r\ntype RootLayoutProps = {\r\n  children: ReactNode;\r\n};\r\n\r\nexport default function RootLayout({ children }: RootLayoutProps) {\r\n  return (\r\n    <html lang=\"en\">\r\n      <body>{children}</body>\r\n    </html>\r\n  );\r\n}\r\n"],"names":[],"mappings":";;;;;;;;;AAGO,MAAM,WAAW;IACtB,OAAO;IACP,aAAa;AACf;AAMe,SAAS,WAAW,EAAE,QAAQ,EAAmB;IAC9D,qBACE,8OAAC;QAAK,MAAK;kBACT,cAAA,8OAAC;sBAAM;;;;;;;;;;;AAGb"}},
-    {"offset": {"line": 37, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/Shaurya/Desktop/Velocity%20ERP/node_modules/next/src/server/route-modules/app-page/vendored/rsc/react-jsx-dev-runtime.ts"],"sourcesContent":["module.exports = (\n  require('../../module.compiled') as typeof import('../../module.compiled')\n).vendored['react-rsc']!.ReactJsxDevRuntime\n"],"names":["module","exports","require","vendored","ReactJsxDevRuntime"],"mappings":"AAAAA,OAAOC,OAAO,GACZC,QAAQ,4HACRC,QAAQ,CAAC,YAAY,CAAEC,kBAAkB","ignoreList":[0]}}]
-}
