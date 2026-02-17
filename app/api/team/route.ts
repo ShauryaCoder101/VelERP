@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
 
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
+  const password = body.password ?? "ChangeMe123!";
+  const passwordHash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
       uid: body.uid,
@@ -23,7 +26,8 @@ export async function POST(request: Request) {
       designation: body.designation,
       role: body.role,
       team: body.team ?? null,
-      status: body.status ?? "ACTIVE"
+      status: body.status ?? "ACTIVE",
+      passwordHash
     }
   });
   return Response.json(user);
