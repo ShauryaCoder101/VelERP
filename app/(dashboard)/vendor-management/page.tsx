@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { currentUser } from "../../../lib/auth";
 
 type RatingEntry = {
+  id?: string;
   rating: number;
   remarks: string;
   by: string;
@@ -11,8 +12,10 @@ type RatingEntry = {
 };
 
 type Vendor = {
-  id: number;
+  id: string;
   companyName: string;
+  email: string;
+  location: string;
   phone: string;
   work: string;
   gstin: string;
@@ -23,9 +26,11 @@ type Vendor = {
   ratings: RatingEntry[];
 };
 
-const createVendor = (id: number): Vendor => ({
-  id,
+const createVendor = (): Vendor => ({
+  id: "",
   companyName: "",
+  email: "",
+  location: "",
   phone: "",
   work: "",
   gstin: "",
@@ -38,25 +43,57 @@ const createVendor = (id: number): Vendor => ({
 
 export default function VendorManagementPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [ratingVendorId, setRatingVendorId] = useState<number | null>(null);
-  const [historyVendorId, setHistoryVendorId] = useState<number | null>(null);
+  const [ratingVendorId, setRatingVendorId] = useState<string | null>(null);
+  const [historyVendorId, setHistoryVendorId] = useState<string | null>(null);
   const [ratingValue, setRatingValue] = useState("5");
   const [ratingRemarks, setRatingRemarks] = useState("");
-  const [deleteVendorId, setDeleteVendorId] = useState<number | null>(null);
+  const [deleteVendorId, setDeleteVendorId] = useState<string | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [newVendor, setNewVendor] = useState<Vendor>(createVendor(1));
+  const [newVendor, setNewVendor] = useState<Vendor>(createVendor());
 
-  const handleVendorChange = (id: number, field: keyof Vendor, value: string) => {
+  useEffect(() => {
+    const loadVendors = async () => {
+      const response = await fetch("/api/vendors");
+      if (!response.ok) return;
+      const data = await response.json();
+      const mapped = data.map((vendor: any) => ({
+        id: vendor.id,
+        companyName: vendor.companyName,
+        email: vendor.email ?? "",
+        location: vendor.location ?? "",
+        phone: vendor.phone,
+        work: vendor.work,
+        gstin: vendor.gstin ?? "",
+        status: vendor.status === "ACTIVE" ? "Active" : "Inactive",
+        currentEvent: vendor.currentEvent ?? "",
+        onboardedAt: new Date(vendor.onboardedAt).toLocaleString(),
+        onboardedBy: vendor.onboardedByUser?.name ?? vendor.onboardedBy,
+        ratings: (vendor.ratings ?? []).map((rating: any) => ({
+          id: rating.id,
+          rating: rating.rating,
+          remarks: rating.remarks ?? "",
+          by: rating.userId,
+          date: new Date(rating.createdAt).toLocaleString()
+        }))
+      }));
+      setVendors(mapped);
+    };
+    loadVendors();
+  }, []);
+
+  const handleVendorChange = (id: string, field: keyof Vendor, value: string) => {
     setVendors((prev) => prev.map((vendor) => (vendor.id === id ? { ...vendor, [field]: value } : vendor)));
   };
 
   const handleAddVendor = () => {
     setIsAddOpen(true);
-    setNewVendor(createVendor(vendors.length + 1));
+    setNewVendor(createVendor());
   };
 
-  const handleRemoveVendor = (id: number) => {
+  const handleRemoveVendor = async (id: string) => {
+    const response = await fetch(`/api/vendors/${id}`, { method: "DELETE" });
+    if (!response.ok) return;
     setVendors((prev) => prev.filter((vendor) => vendor.id !== id));
   };
 
@@ -81,18 +118,32 @@ export default function VendorManagementPage() {
     return (total / ratings.length).toFixed(1);
   };
 
-  const handleSubmitRating = () => {
+  const handleSubmitRating = async () => {
     if (!ratingTarget) return;
-    const entry: RatingEntry = {
-      rating: Number(ratingValue),
-      remarks: ratingRemarks.trim(),
-      by: currentUser.name,
-      date: new Date().toLocaleString()
-    };
-
+    const response = await fetch(`/api/vendors/${ratingTarget.id}/ratings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: ratingValue, remarks: ratingRemarks })
+    });
+    if (!response.ok) return;
+    const entry = await response.json();
     setVendors((prev) =>
       prev.map((vendor) =>
-        vendor.id === ratingTarget.id ? { ...vendor, ratings: [entry, ...vendor.ratings] } : vendor
+        vendor.id === ratingTarget.id
+          ? {
+              ...vendor,
+              ratings: [
+                {
+                  id: entry.id,
+                  rating: entry.rating,
+                  remarks: entry.remarks ?? "",
+                  by: currentUser.name,
+                  date: new Date(entry.createdAt).toLocaleString()
+                },
+                ...vendor.ratings
+              ]
+            }
+          : vendor
       )
     );
     setRatingVendorId(null);
@@ -100,16 +151,65 @@ export default function VendorManagementPage() {
     setRatingValue("5");
   };
 
-  const handleCreateVendor = () => {
-    const nextId = vendors.length === 0 ? 1 : Math.max(...vendors.map((vendor) => vendor.id)) + 1;
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!historyTarget) return;
+      const response = await fetch(`/api/vendors/${historyTarget.id}/ratings`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setVendors((prev) =>
+        prev.map((vendor) =>
+          vendor.id === historyTarget.id
+            ? {
+                ...vendor,
+                ratings: data.map((entry: any) => ({
+                  id: entry.id,
+                  rating: entry.rating,
+                  remarks: entry.remarks ?? "",
+                  by: entry.user?.name ?? entry.userId,
+                  date: new Date(entry.createdAt).toLocaleString()
+                }))
+              }
+            : vendor
+        )
+      );
+    };
+    loadHistory();
+  }, [historyTarget]);
+
+  const handleCreateVendor = async () => {
+    const response = await fetch("/api/vendors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyName: newVendor.companyName,
+        email: newVendor.email,
+        location: newVendor.location,
+        phone: newVendor.phone,
+        work: newVendor.work,
+        gstin: newVendor.gstin,
+        status: newVendor.status === "Active" ? "ACTIVE" : "INACTIVE",
+        currentEvent: newVendor.currentEvent
+      })
+    });
+    if (!response.ok) return;
+    const created = await response.json();
     setVendors((prev) => [
-      ...prev,
       {
-        ...newVendor,
-        id: nextId,
-        onboardedAt: new Date().toLocaleString(),
-        onboardedBy: currentUser.name
-      }
+        id: created.id,
+        companyName: created.companyName,
+        email: created.email ?? "",
+        location: created.location ?? "",
+        phone: created.phone,
+        work: created.work,
+        gstin: created.gstin ?? "",
+        status: created.status === "ACTIVE" ? "Active" : "Inactive",
+        currentEvent: created.currentEvent ?? "",
+        onboardedAt: new Date(created.onboardedAt).toLocaleString(),
+        onboardedBy: currentUser.name,
+        ratings: []
+      },
+      ...prev
     ]);
     setIsAddOpen(false);
   };
@@ -142,6 +242,8 @@ export default function VendorManagementPage() {
                 <tr>
                   <th>S.No</th>
                   <th>Company Name</th>
+                  <th>Email</th>
+                  <th>Location</th>
                   <th>Ph No</th>
                   <th>Work</th>
                   <th>GSTIN</th>
@@ -154,7 +256,7 @@ export default function VendorManagementPage() {
               <tbody>
                 {vendors.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>
+                    <td colSpan={11}>
                       <div className="empty-state">No onboarded vendors yet.</div>
                     </td>
                   </tr>
@@ -163,6 +265,8 @@ export default function VendorManagementPage() {
                     <tr key={vendor.id}>
                       <td>{index + 1}</td>
                       <td>{vendor.companyName || "—"}</td>
+                      <td>{vendor.email || "—"}</td>
+                      <td>{vendor.location || "—"}</td>
                       <td>{vendor.phone || "—"}</td>
                       <td>{vendor.work || "—"}</td>
                       <td>{vendor.gstin || "—"}</td>
@@ -356,6 +460,26 @@ export default function VendorManagementPage() {
               value={newVendor.phone}
               onChange={(event) => setNewVendor((prev) => ({ ...prev, phone: event.target.value }))}
               placeholder="Phone"
+            />
+            <label className="auth-label" htmlFor="vendor-email">
+              Email
+            </label>
+            <input
+              id="vendor-email"
+              className="input"
+              value={newVendor.email}
+              onChange={(event) => setNewVendor((prev) => ({ ...prev, email: event.target.value }))}
+              placeholder="Email"
+            />
+            <label className="auth-label" htmlFor="vendor-location">
+              Location
+            </label>
+            <input
+              id="vendor-location"
+              className="input"
+              value={newVendor.location}
+              onChange={(event) => setNewVendor((prev) => ({ ...prev, location: event.target.value }))}
+              placeholder="Location"
             />
             <label className="auth-label" htmlFor="vendor-work">
               Work

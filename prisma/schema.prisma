@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoleName {
+  MANAGING_DIRECTOR
+  HEAD_OF_OPERATIONS
+  HEAD_OF_SPECIAL_PROJECTS
+  GROWTH_PARTNER
+  OPERATIONS_TEAM_MEMBER
+  RESEARCH_AND_DEVELOPMENT_TEAM_MEMBER
+  ACCOUNTANT
+  PHOTOGRAPHER
+  INTERN
+  ASSISTANT
+  FREELANCER
+}
+
+enum Status {
+  ACTIVE
+  INACTIVE
+}
+
+enum Phase {
+  IDEATION
+  PITCHING
+  BIDDING
+  PREPARATION
+  ONGOING
+  FINISHED
+}
+
+enum ClaimStatus {
+  INCOMPLETE
+  FLAGGED
+  DONE
+}
+
+model User {
+  id          String   @id @default(uuid())
+  uid         String   @unique
+  name        String
+  email       String   @unique
+  passwordHash String
+  designation String
+  role        RoleName
+  team        String?
+  status      Status   @default(ACTIVE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  onboardedVendors Vendor[]  @relation("VendorOnboardedBy")
+  onboardedArtists Artist[]  @relation("ArtistOnboardedBy")
+  assignedTasks    Task[]    @relation("TaskAssignedBy")
+  receivedTasks    Task[]    @relation("TaskAssignedTo")
+  ratings          Rating[]
+  sessions         Session[]
+  expenseClaims    ExpenseClaim[]
+  uploads          Upload[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Event {
+  id          String   @id @default(uuid())
+  companyName String
+  eventName   String
+  pocName     String
+  pocPhone    String
+  phase       Phase    @default(IDEATION)
+  internalCost Float?
+  clientCost   Float?
+  velocityRep  String?
+  fromDate    DateTime
+  toDate      DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vendors     EventVendor[]
+  artists     EventArtist[]
+  uploads     Upload[]
+  claims      ExpenseClaim[]
+  bills       EventBill[]
+}
+
+model Vendor {
+  id           String   @id @default(uuid())
+  companyName  String
+  email        String?
+  location     String?
+  phone        String
+  work         String
+  gstin        String?
+  status       Status   @default(INACTIVE)
+  currentEvent String?
+  onboardedAt  DateTime @default(now())
+  onboardedBy  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  onboardedByUser User        @relation("VendorOnboardedBy", fields: [onboardedBy], references: [id])
+  ratings         Rating[]
+  events          EventVendor[]
+  bills           EventBill[]
+}
+
+model EventBill {
+  id         String   @id @default(uuid())
+  eventId    String
+  vendorId   String
+  vendorGstin String?
+  date       DateTime
+  work       String
+  amountPaid Float
+  createdAt  DateTime @default(now())
+
+  event      Event    @relation(fields: [eventId], references: [id])
+  vendor     Vendor   @relation(fields: [vendorId], references: [id])
+}
+
+model Artist {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String
+  category     String
+  location     String?
+  socialLink   String?
+  status       Status   @default(INACTIVE)
+  currentEvent String?
+  lastEvent    String?
+  onboardedAt  DateTime @default(now())
+  onboardedBy  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  onboardedByUser User     @relation("ArtistOnboardedBy", fields: [onboardedBy], references: [id])
+  ratings         Rating[]
+  events          EventArtist[]
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  rating    Int
+  remarks   String?
+  createdAt DateTime @default(now())
+
+  vendorId  String?
+  artistId  String?
+  userId    String
+
+  vendor    Vendor?  @relation(fields: [vendorId], references: [id])
+  artist    Artist?  @relation(fields: [artistId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model EventVendor {
+  eventId  String
+  vendorId String
+
+  event  Event  @relation(fields: [eventId], references: [id])
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@id([eventId, vendorId])
+}
+
+model EventArtist {
+  eventId  String
+  artistId String
+
+  event  Event  @relation(fields: [eventId], references: [id])
+  artist Artist @relation(fields: [artistId], references: [id])
+
+  @@id([eventId, artistId])
+}
+
+model ExpenseClaim {
+  id         String         @id @default(uuid())
+  userId     String
+  eventId    String?
+  status     ClaimStatus    @default(INCOMPLETE)
+  submittedAt DateTime      @default(now())
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  user       User           @relation(fields: [userId], references: [id])
+  event      Event?         @relation(fields: [eventId], references: [id])
+  items      ExpenseItem[]
+  attachments ExpenseAttachment[]
+}
+
+model ExpenseItem {
+  id        String   @id @default(uuid())
+  claimId   String
+  eventName String
+  location  String
+  type      String
+  date      DateTime
+  amount    Float
+
+  claim     ExpenseClaim @relation(fields: [claimId], references: [id])
+}
+
+model ExpenseAttachment {
+  id        String   @id @default(uuid())
+  claimId   String
+  fileUrl   String
+  fileType  String
+  createdAt DateTime @default(now())
+
+  claim     ExpenseClaim @relation(fields: [claimId], references: [id])
+}
+
+model Upload {
+  id        String   @id @default(uuid())
+  eventId   String
+  fileUrl   String
+  fileType  String
+  uploadedBy String
+  createdAt DateTime @default(now())
+
+  event     Event    @relation(fields: [eventId], references: [id])
+  user      User     @relation(fields: [uploadedBy], references: [id])
+}
+
+model Task {
+  id         String   @id @default(uuid())
+  title      String
+  notes      String?
+  dueDate    DateTime?
+  assignedBy String
+  assignedTo String
+  createdAt  DateTime @default(now())
+
+  assignedByUser User @relation("TaskAssignedBy", fields: [assignedBy], references: [id])
+  assignedToUser User @relation("TaskAssignedTo", fields: [assignedTo], references: [id])
+}

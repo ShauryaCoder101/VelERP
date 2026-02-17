@@ -122,6 +122,81 @@ a {
   background: var(--red-soft);
 }
 
+.nav-icon-dashboard {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.nav-icon-dashboard::before,
+.nav-icon-dashboard::after {
+  content: "";
+  position: absolute;
+  background: var(--black);
+  border-radius: 2px;
+}
+
+.nav-icon-dashboard::before {
+  width: 8px;
+  height: 8px;
+  top: 4px;
+  left: 4px;
+  box-shadow:
+    0 10px 0 0 var(--black),
+    10px 0 0 0 var(--black),
+    10px 10px 0 0 var(--black);
+}
+
+.nav-item:hover .nav-icon-dashboard::before,
+.nav-item:hover .nav-icon-dashboard::after {
+  background: var(--red);
+}
+
+.nav-item:hover .nav-icon-dashboard::before {
+  box-shadow:
+    0 10px 0 0 var(--red),
+    10px 0 0 0 var(--red),
+    10px 10px 0 0 var(--red);
+}
+
+.nav-icon-events {
+  position: relative;
+  background: transparent;
+}
+
+.nav-icon-events::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 4px;
+  border: 2px solid var(--black);
+}
+
+.nav-icon-events::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 8px;
+  height: 2px;
+  background: var(--black);
+  box-shadow:
+    0 5px 0 0 var(--black),
+    6px 5px 0 0 var(--black),
+    12px 5px 0 0 var(--black);
+}
+
+.nav-item:hover .nav-icon-events::before,
+.nav-item:hover .nav-icon-events::after {
+  border-color: var(--red);
+  background: var(--red);
+  box-shadow:
+    0 5px 0 0 var(--red),
+    6px 5px 0 0 var(--red),
+    12px 5px 0 0 var(--red);
+}
+
 .main {
   display: flex;
   flex-direction: column;
@@ -149,23 +224,26 @@ a {
   gap: 12px;
   font-weight: 600;
   position: absolute;
-  left: 24px;
+  left: 0;
+  right: 0;
+  justify-content: center;
 }
 
 .brand-name {
   font-size: 18px;
 }
 
-.logo-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--red);
-  color: var(--white);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
+.logo-image {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.logo-topbar {
+  width: 10%;
+  max-width: none;
+  height: auto;
+  margin-left:-1750px;
 }
 
 .topbar-actions {
@@ -212,6 +290,49 @@ a {
   border-radius: 999px;
   border: 1px solid var(--gray-200);
   background: var(--white);
+}
+
+.profile-menu {
+  position: absolute;
+  right: 32px;
+  top: 70px;
+  min-width: 220px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(17, 17, 17, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  z-index: 30;
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.profile-meta span {
+  color: var(--gray-500);
+}
+
+.profile-link {
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--black);
+}
+
+.profile-link:hover {
+  background: var(--gray-100);
+  color: var(--red);
+}
+
+.profile-link.danger {
+  color: var(--red);
 }
 
 .avatar {
@@ -464,6 +585,41 @@ a {
   font-weight: 600;
 }
 
+.finance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.finance-card {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.finance-card h3 {
+  font-size: 16px;
+}
+
+.finance-card .profit {
+  font-weight: 700;
+  color: var(--red);
+}
+
+.upload-card {
+  width: min(520px, 92vw);
+}
+
+.upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--gray-200);
@@ -509,6 +665,74 @@ a {
 
 .vendor-table th {
   background: var(--gray-100);
+  font-weight: 600;
+}
+
+.events-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+}
+
+.events-table th,
+.events-table td {
+  border-bottom: 1px solid var(--gray-200);
+  padding: 12px 10px;
+  text-align: left;
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.events-table th {
+  background: var(--gray-100);
+  font-weight: 600;
+}
+
+.uploads-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+
+.uploads-table th,
+.uploads-table td {
+  border-bottom: 1px solid var(--gray-200);
+  padding: 12px 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.uploads-table th {
+  background: var(--gray-100);
+  font-weight: 600;
+}
+
+.team-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+}
+
+.team-table th,
+.team-table td {
+  border-bottom: 1px solid var(--gray-200);
+  padding: 12px 10px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.team-table th {
+  background: var(--gray-100);
+  font-weight: 600;
+}
+
+.email-pill {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--red-soft);
+  color: var(--red);
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -588,6 +812,17 @@ a {
   background: var(--gray-100);
 }
 
+.vendor-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.vendor-option input {
+  accent-color: var(--red);
+}
+
 .empty-state {
   padding: 18px;
   text-align: center;
@@ -612,6 +847,21 @@ a {
 .status-pill.inactive {
   background: rgba(225, 22, 42, 0.12);
   color: #b3172a;
+}
+
+.phase-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--gray-100);
+  color: var(--black);
+}
+
+select[multiple].input {
+  min-height: 120px;
 }
 
 .auth-page {
@@ -665,6 +915,36 @@ a {
   padding: 0;
   font: inherit;
   align-self: flex-start;
+}
+
+.auth-error {
+  color: var(--red);
+  font-size: 13px;
+}
+
+.claims-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.claims-group {
+  border: 1px solid var(--gray-200);
+  border-radius: 14px;
+  background: var(--white);
+}
+
+.claims-toggle {
+  width: 100%;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.claims-table-wrap {
+  padding: 0 16px 16px;
 }
 
 @media (max-width: 960px) {

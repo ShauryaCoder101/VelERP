@@ -2,7 +2,7 @@ import "./globals.css";
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "ERPSuite - Event Management ERP",
+  title: "Velocity Brand Server Pvt. Ltd. - Event Management ERP",
   description: "ERP dashboard layout for an event management firm."
 };
 

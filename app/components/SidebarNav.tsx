@@ -20,7 +20,16 @@ export default function SidebarNav() {
             href={link.href}
             className={`nav-item hover-text${isActive ? " active" : ""}`}
           >
-            <span className="nav-icon" aria-hidden="true" />
+            <span
+              className={`nav-icon${
+                link.label === "My Dashboard"
+                  ? " nav-icon-dashboard"
+                  : link.label === "Events"
+                    ? " nav-icon-events"
+                    : ""
+              }`}
+              aria-hidden="true"
+            />
             <span>{link.label}</span>
           </Link>
         );

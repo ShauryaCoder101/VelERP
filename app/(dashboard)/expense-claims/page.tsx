@@ -42,9 +42,27 @@ export default function ExpenseClaimsPage() {
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Placeholder for API submit. Payload should include currentUser.uid.
-    // eslint-disable-next-line no-console
-    console.log("Submitting claims for:", currentUser.uid, rows);
+    const payload = {
+      items: rows.map((row) => ({
+        eventName: row.event,
+        location: row.location,
+        type: row.type,
+        date: row.date,
+        amount: Number(row.amount)
+      })),
+      attachments: rows
+        .map((row) => row.attachment)
+        .filter(Boolean)
+        .map((file) => ({
+          fileUrl: (file as File).name,
+          fileType: (file as File).type
+        }))
+    };
+    fetch("/api/expense-claims", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(() => null);
   };
 
   return (

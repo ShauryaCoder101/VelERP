@@ -1,17 +1,37 @@
 import type { ReactNode } from "react";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import SidebarNav from "../components/SidebarNav";
-import { currentUser } from "../../lib/auth";
+import TopbarActions from "../components/TopbarActions";
+import { getSessionUser } from "../../lib/session";
 
 type DashboardLayoutProps = {
   children: ReactNode;
 };
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
+export default async function DashboardLayout({ children }: DashboardLayoutProps) {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("velocity_session");
+  if (!session) {
+    redirect("/login");
+  }
+  const user = await getSessionUser(
+    new Request("http://localhost", {
+      headers: { cookie: cookieStore.toString() }
+    })
+  );
+  if (user?.role === "Accountant") {
+    redirect("/accountant");
+  }
+  if (user?.role === "Photographer") {
+    redirect("/tpp-login/upload");
+  }
+
   return (
     <div className="dashboard">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <span className="logo-badge">E</span>
+          <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
         </div>
         <SidebarNav />
       </aside>
@@ -19,34 +39,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="main">
         <header className="topbar">
           <div className="brand">
-            <span className="logo-badge">E</span>
-            <span className="brand-name">ERPSuite</span>
+            <img className="logo-image logo-topbar" src="/velocity-logo.png" alt="Velocity Logo" />
           </div>
-          <div className="topbar-actions">
-            <button className="icon-button hover-text" type="button" aria-label="Notifications">
-              <span className="bell" />
-              <span className="status-dot" />
-            </button>
-            <button className="profile-button hover-text" type="button">
-              <span className="avatar">U</span>
-              <span className="profile-name">{currentUser.name}</span>
-              <span className="chevron" aria-hidden="true" />
-            </button>
-          </div>
+          <TopbarActions />
         </header>
 
         <main className="content">{children}</main>
 
         <footer className="footer">
           <div className="footer-brand">
-            <span className="logo-badge">E</span>
-            <span>ERPSuite</span>
+            <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
           </div>
           <div className="footer-contact">
             <span>contact@erpsuite.com</span>
             <span>+1 234 567 890</span>
           </div>
-          <div className="footer-copy">© 2026 ERPSuite. All rights reserved.</div>
+          <div className="footer-copy">© 2026 Velocity Brand Server Pvt. Ltd. All rights reserved.</div>
         </footer>
       </div>
     </div>
