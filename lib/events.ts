@@ -18,10 +18,11 @@ export const seedEvents: EventItem[] = [
     eventName: "Annual Gala",
     pocName: "S. Nair",
     pocPhone: "+91 98765 43210",
-    status: "Active",
+    phase: "Ongoing",
     fromDate: "2026-02-10",
     toDate: "2026-02-12",
-    vendorIds: ["1", "2"]
+    vendorIds: ["1", "2"],
+    artistIds: []
   },
   {
     id: "2",
@@ -29,9 +30,10 @@ export const seedEvents: EventItem[] = [
     eventName: "Product Launch",
     pocName: "R. Mehta",
     pocPhone: "+91 91234 56789",
-    status: "Inactive",
+    phase: "Finished",
     fromDate: "2025-12-05",
     toDate: "2025-12-06",
-    vendorIds: ["2", "3"]
+    vendorIds: ["2", "3"],
+    artistIds: []
   }
 ];
