@@ -1,12 +1,14 @@
+import { NextRequest } from "next/server";
 import { prisma } from "../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 
-export async function DELETE(request: Request, context: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { role } = await getRequestUser(request);
   if (!requireMinLevel(role, 1)) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  await prisma.artist.delete({ where: { id: context.params.id } });
+  const { id } = await context.params;
+  await prisma.artist.delete({ where: { id } });
   return new Response(null, { status: 204 });
 }

@@ -1,15 +1,16 @@
+import { NextRequest } from "next/server";
 import { prisma } from "../../../../lib/db";
 import type { Prisma } from "@prisma/client";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { role } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) {
     return new Response("Forbidden", { status: 403 });
   }
 
   const body = await request.json();
-  const eventId = context.params.id;
+  const { id: eventId } = await context.params;
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.event.update({
       where: { id: eventId },
