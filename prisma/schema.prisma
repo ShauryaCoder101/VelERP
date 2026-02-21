@@ -17,6 +17,8 @@ enum RoleName {
   INTERN
   ASSISTANT
   FREELANCER
+  ACCOUNTANT
+  PHOTOGRAPHER
 }
 
 enum Status {
@@ -89,6 +91,7 @@ model Vendor {
   companyName  String
   phone        String
   work         String
+  location     String?
   gstin        String?
   status       Status   @default(INACTIVE)
   currentEvent String?
@@ -107,6 +110,8 @@ model Artist {
   name         String
   phone        String
   category     String
+  location     String?
+  socialLink   String?
   status       Status   @default(INACTIVE)
   currentEvent String?
   lastEvent    String?
