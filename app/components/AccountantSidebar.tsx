@@ -4,7 +4,6 @@ const LINKS = [
   { label: "Dashboard", href: "/accountant" },
   { label: "Expense Management", href: "/accountant/claim-management" },
   { label: "Vendor Management", href: "/accountant/vendor-management" },
-  { label: "Event Bills", href: "/accountant/event-bills" },
   { label: "Finance", href: "/accountant/finance" }
 ];
 
