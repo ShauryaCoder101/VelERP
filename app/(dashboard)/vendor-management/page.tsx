@@ -14,7 +14,6 @@ type RatingEntry = {
 type Vendor = {
   id: string;
   companyName: string;
-  email: string;
   location: string;
   phone: string;
   work: string;
@@ -29,7 +28,6 @@ type Vendor = {
 const createVendor = (): Vendor => ({
   id: "",
   companyName: "",
-  email: "",
   location: "",
   phone: "",
   work: "",
@@ -60,7 +58,6 @@ export default function VendorManagementPage() {
       const mapped = data.map((vendor: any) => ({
         id: vendor.id,
         companyName: vendor.companyName,
-        email: vendor.email ?? "",
         location: vendor.location ?? "",
         phone: vendor.phone,
         work: vendor.work,
@@ -183,7 +180,6 @@ export default function VendorManagementPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         companyName: newVendor.companyName,
-        email: newVendor.email,
         location: newVendor.location,
         phone: newVendor.phone,
         work: newVendor.work,
@@ -198,7 +194,6 @@ export default function VendorManagementPage() {
       {
         id: created.id,
         companyName: created.companyName,
-        email: created.email ?? "",
         location: created.location ?? "",
         phone: created.phone,
         work: created.work,
@@ -242,7 +237,6 @@ export default function VendorManagementPage() {
                 <tr>
                   <th>S.No</th>
                   <th>Company Name</th>
-                  <th>Email</th>
                   <th>Location</th>
                   <th>Ph No</th>
                   <th>Work</th>
@@ -256,7 +250,7 @@ export default function VendorManagementPage() {
               <tbody>
                 {vendors.length === 0 ? (
                   <tr>
-                    <td colSpan={11}>
+                    <td colSpan={10}>
                       <div className="empty-state">No onboarded vendors yet.</div>
                     </td>
                   </tr>
@@ -265,7 +259,6 @@ export default function VendorManagementPage() {
                     <tr key={vendor.id}>
                       <td>{index + 1}</td>
                       <td>{vendor.companyName || "—"}</td>
-                      <td>{vendor.email || "—"}</td>
                       <td>{vendor.location || "—"}</td>
                       <td>{vendor.phone || "—"}</td>
                       <td>{vendor.work || "—"}</td>
@@ -460,16 +453,6 @@ export default function VendorManagementPage() {
               value={newVendor.phone}
               onChange={(event) => setNewVendor((prev) => ({ ...prev, phone: event.target.value }))}
               placeholder="Phone"
-            />
-            <label className="auth-label" htmlFor="vendor-email">
-              Email
-            </label>
-            <input
-              id="vendor-email"
-              className="input"
-              value={newVendor.email}
-              onChange={(event) => setNewVendor((prev) => ({ ...prev, email: event.target.value }))}
-              placeholder="Email"
             />
             <label className="auth-label" htmlFor="vendor-location">
               Location
