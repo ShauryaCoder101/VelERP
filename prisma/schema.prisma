@@ -5,7 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 enum RoleName {
@@ -15,8 +14,6 @@ enum RoleName {
   GROWTH_PARTNER
   OPERATIONS_TEAM_MEMBER
   RESEARCH_AND_DEVELOPMENT_TEAM_MEMBER
-  ACCOUNTANT
-  PHOTOGRAPHER
   INTERN
   ASSISTANT
   FREELANCER
@@ -34,12 +31,6 @@ enum Phase {
   PREPARATION
   ONGOING
   FINISHED
-}
-
-enum ClaimStatus {
-  INCOMPLETE
-  FLAGGED
-  DONE
 }
 
 model User {
@@ -82,9 +73,6 @@ model Event {
   pocName     String
   pocPhone    String
   phase       Phase    @default(IDEATION)
-  internalCost Float?
-  clientCost   Float?
-  velocityRep  String?
   fromDate    DateTime
   toDate      DateTime
   createdAt   DateTime @default(now())
@@ -94,14 +82,11 @@ model Event {
   artists     EventArtist[]
   uploads     Upload[]
   claims      ExpenseClaim[]
-  bills       EventBill[]
 }
 
 model Vendor {
   id           String   @id @default(uuid())
   companyName  String
-  email        String?
-  location     String?
   phone        String
   work         String
   gstin        String?
@@ -115,21 +100,6 @@ model Vendor {
   onboardedByUser User        @relation("VendorOnboardedBy", fields: [onboardedBy], references: [id])
   ratings         Rating[]
   events          EventVendor[]
-  bills           EventBill[]
-}
-
-model EventBill {
-  id         String   @id @default(uuid())
-  eventId    String
-  vendorId   String
-  vendorGstin String?
-  date       DateTime
-  work       String
-  amountPaid Float
-  createdAt  DateTime @default(now())
-
-  event      Event    @relation(fields: [eventId], references: [id])
-  vendor     Vendor   @relation(fields: [vendorId], references: [id])
 }
 
 model Artist {
@@ -137,8 +107,6 @@ model Artist {
   name         String
   phone        String
   category     String
-  location     String?
-  socialLink   String?
   status       Status   @default(INACTIVE)
   currentEvent String?
   lastEvent    String?
@@ -191,7 +159,7 @@ model ExpenseClaim {
   id         String         @id @default(uuid())
   userId     String
   eventId    String?
-  status     ClaimStatus    @default(INCOMPLETE)
+  status     Status         @default(INACTIVE)
   submittedAt DateTime      @default(now())
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt

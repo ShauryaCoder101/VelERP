@@ -20,6 +20,9 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
       headers: { cookie: cookieStore.toString() }
     })
   );
+  if (!user) {
+    redirect("/login");
+  }
   if (user?.role === "Accountant") {
     redirect("/accountant");
   }

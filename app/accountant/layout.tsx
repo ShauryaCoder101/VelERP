@@ -20,10 +20,13 @@ export default async function AccountantLayout({ children }: AccountantLayoutPro
       headers: { cookie: cookieStore.toString() }
     })
   );
+  if (!user) {
+    redirect("/login");
+  }
   if (user?.role === "Photographer") {
     redirect("/tpp-login/upload");
   }
-  if (!user || user.role !== "Accountant") {
+  if (user.role !== "Accountant") {
     redirect("/");
   }
 

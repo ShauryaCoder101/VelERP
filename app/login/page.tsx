@@ -21,16 +21,6 @@ export default function LoginPage() {
       return;
     }
 
-    const data = await response.json();
-    const role = typeof data?.role === "string" ? data.role : "";
-    if (role === "ACCOUNTANT") {
-      window.location.href = "/accountant";
-      return;
-    }
-    if (role === "PHOTOGRAPHER") {
-      window.location.href = "/tpp-login/upload";
-      return;
-    }
     window.location.href = "/";
   };
 
