@@ -1,4 +1,4 @@
-const cards = ["Total Claims", "Pending Bills", "Active Vendors", "Upcoming Payouts"];
+const cards = ["Total Claims", "Pending Claims", "Active Vendors", "Upcoming Payouts"];
 
 export default function AccountantDashboardPage() {
   return (
@@ -6,7 +6,7 @@ export default function AccountantDashboardPage() {
       <section className="page-header">
         <div>
           <h1>Accountant Dashboard</h1>
-          <p>Financial overview for claims, vendors, and event bills.</p>
+          <p>Financial overview for claims and vendor management.</p>
         </div>
       </section>
 
@@ -32,7 +32,7 @@ export default function AccountantDashboardPage() {
         </div>
         <div className="panel">
           <div className="panel-header">
-            <h2>Upcoming Bills</h2>
+            <h2>Upcoming Payouts</h2>
           </div>
           <div className="panel-body" />
         </div>

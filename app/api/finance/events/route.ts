@@ -10,7 +10,6 @@ export async function GET(request: Request) {
   const events = await prisma.event.findMany({
     where: { phase: "FINISHED" },
     include: {
-      bills: { include: { vendor: true } },
       claims: { include: { user: true, items: true } }
     },
     orderBy: { toDate: "desc" }

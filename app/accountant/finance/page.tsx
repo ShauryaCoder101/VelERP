@@ -2,15 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Bill = {
-  id: string;
-  vendorName: string;
-  vendorGstin?: string | null;
-  date: string;
-  work: string;
-  amountPaid: number;
-};
-
 type Claim = {
   id: string;
   userName: string;
@@ -21,10 +12,6 @@ type Claim = {
 type FinanceEvent = {
   id: string;
   eventName: string;
-  internalCost?: number | null;
-  clientCost?: number | null;
-  velocityRep?: string | null;
-  bills: Bill[];
   claims: Claim[];
 };
 
@@ -41,17 +28,6 @@ export default function FinancePage() {
         data.map((eventItem: any) => ({
           id: eventItem.id,
           eventName: eventItem.eventName,
-          internalCost: eventItem.internalCost,
-          clientCost: eventItem.clientCost,
-          velocityRep: eventItem.velocityRep,
-          bills: (eventItem.bills ?? []).map((bill: any) => ({
-            id: bill.id,
-            vendorName: bill.vendor?.companyName ?? "",
-            vendorGstin: bill.vendorGstin,
-            date: bill.date,
-            work: bill.work,
-            amountPaid: bill.amountPaid
-          })),
           claims: (eventItem.claims ?? []).map((claim: any) => ({
             id: claim.id,
             userName: claim.user?.name ?? "",
@@ -72,12 +48,8 @@ export default function FinancePage() {
     [events, activeEventId]
   );
 
-  const profitPercent = (eventItem: FinanceEvent) => {
-    if (!eventItem.clientCost || !eventItem.internalCost) return "—";
-    if (eventItem.clientCost === 0) return "—";
-    const profit = ((eventItem.clientCost - eventItem.internalCost) / eventItem.clientCost) * 100;
-    return `${profit.toFixed(1)}%`;
-  };
+  const totalClaims = (eventItem: FinanceEvent) =>
+    eventItem.claims.reduce((sum, claim) => sum + claim.totalAmount, 0);
 
   return (
     <>
@@ -97,10 +69,8 @@ export default function FinancePage() {
             onClick={() => setActiveEventId(eventItem.id)}
           >
             <h3>{eventItem.eventName}</h3>
-            <p className="muted">Internal Cost: {eventItem.internalCost ?? "—"}</p>
-            <p className="muted">Client Cost: {eventItem.clientCost ?? "—"}</p>
-            <p className="profit">Profit: {profitPercent(eventItem)}</p>
-            <p className="muted">Velocity Rep: {eventItem.velocityRep ?? "—"}</p>
+            <p className="muted">Claims: {eventItem.claims.length}</p>
+            <p className="muted">Total Amount: {totalClaims(eventItem).toFixed(2)}</p>
           </button>
         ))}
       </section>
@@ -112,40 +82,6 @@ export default function FinancePage() {
           </div>
           <div className="panel-body">
             <div className="grid-two">
-              <div className="panel">
-                <div className="panel-header">
-                  <h3>Event Bills</h3>
-                </div>
-                <div className="panel-body">
-                  {selectedEvent.bills.length === 0 ? (
-                    <div className="empty-state">No bills filed.</div>
-                  ) : (
-                    <table className="uploads-table">
-                      <thead>
-                        <tr>
-                          <th>Vendor</th>
-                          <th>GSTIN</th>
-                          <th>Date</th>
-                          <th>Work</th>
-                          <th>Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedEvent.bills.map((bill) => (
-                          <tr key={bill.id}>
-                            <td>{bill.vendorName}</td>
-                            <td>{bill.vendorGstin || "—"}</td>
-                            <td>{new Date(bill.date).toLocaleDateString()}</td>
-                            <td>{bill.work}</td>
-                            <td>{bill.amountPaid.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-
               <div className="panel">
                 <div className="panel-header">
                   <h3>Expense Claims</h3>
