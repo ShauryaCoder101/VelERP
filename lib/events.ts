@@ -9,6 +9,7 @@ export type EventItem = {
   toDate: string;
   vendorIds: string[];
   artistIds: string[];
+  teamMemberIds: string[];
 };
 
 export const seedEvents: EventItem[] = [
@@ -22,7 +23,8 @@ export const seedEvents: EventItem[] = [
     fromDate: "2026-02-10",
     toDate: "2026-02-12",
     vendorIds: ["1", "2"],
-    artistIds: []
+    artistIds: [],
+    teamMemberIds: []
   },
   {
     id: "2",
@@ -34,6 +36,7 @@ export const seedEvents: EventItem[] = [
     fromDate: "2025-12-05",
     toDate: "2025-12-06",
     vendorIds: ["2", "3"],
-    artistIds: []
+    artistIds: [],
+    teamMemberIds: []
   }
 ];

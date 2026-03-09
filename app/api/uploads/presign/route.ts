@@ -1,6 +1,6 @@
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { s3Client, getS3Bucket, getPublicBaseUrl } from "../../../../lib/s3";
+import { getS3Config, createS3Client } from "../../../../lib/s3";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 
 const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -11,21 +11,26 @@ export async function POST(request: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
+  const config = getS3Config();
+  if (!config) {
+    return Response.json({ error: "S3 not configured" }, { status: 500 });
+  }
+
   const body = await request.json();
   const fileName = sanitizeFileName(body.fileName ?? "upload");
   const fileType = body.fileType ?? "application/octet-stream";
   const eventId = body.eventId ?? "general";
 
-  const bucket = getS3Bucket();
   const key = `uploads/${eventId}/${Date.now()}-${fileName}`;
   const command = new PutObjectCommand({
-    Bucket: bucket,
+    Bucket: config.bucket,
     Key: key,
     ContentType: fileType
   });
 
-  const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 60 * 10 });
-  const fileUrl = `${getPublicBaseUrl()}/${key}`;
+  const client = createS3Client(config);
+  const uploadUrl = await getSignedUrl(client, command, { expiresIn: 60 * 10 });
+  const fileUrl = `${config.publicBaseUrl}/${key}`;
 
   return Response.json({ uploadUrl, fileUrl, key });
 }

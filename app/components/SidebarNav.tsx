@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { currentUser } from "../../lib/auth";
 import { NAV_LINKS } from "../../lib/navigation";
 import { hasAccess } from "../../lib/rbac";
+import SidebarIcon from "./SidebarIcon";
 
 export default function SidebarNav() {
   const pathname = usePathname();
@@ -20,16 +21,7 @@ export default function SidebarNav() {
             href={link.href}
             className={`nav-item hover-text${isActive ? " active" : ""}`}
           >
-            <span
-              className={`nav-icon${
-                link.label === "My Dashboard"
-                  ? " nav-icon-dashboard"
-                  : link.label === "Events"
-                    ? " nav-icon-events"
-                    : ""
-              }`}
-              aria-hidden="true"
-            />
+            <SidebarIcon name={link.icon} />
             <span>{link.label}</span>
           </Link>
         );

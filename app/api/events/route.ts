@@ -5,7 +5,8 @@ export async function GET() {
   const events = await prisma.event.findMany({
     include: {
       vendors: { include: { vendor: true } },
-      artists: { include: { artist: true } }
+      artists: { include: { artist: true } },
+      teamMembers: { include: { user: { select: { id: true, name: true, designation: true, email: true } } } }
     },
     orderBy: [{ fromDate: "desc" }]
   });
@@ -28,20 +29,20 @@ export async function POST(request: Request) {
       phase: body.phase,
       fromDate: new Date(body.fromDate),
       toDate: new Date(body.toDate),
-      vendors: body.vendorIds
-        ? {
-            create: body.vendorIds.map((vendorId: string) => ({
-              vendor: { connect: { id: vendorId } }
-            }))
-          }
+      vendors: body.vendorIds?.length
+        ? { create: body.vendorIds.map((vendorId: string) => ({ vendor: { connect: { id: vendorId } } })) }
         : undefined,
-      artists: body.artistIds
-        ? {
-            create: body.artistIds.map((artistId: string) => ({
-              artist: { connect: { id: artistId } }
-            }))
-          }
+      artists: body.artistIds?.length
+        ? { create: body.artistIds.map((artistId: string) => ({ artist: { connect: { id: artistId } } })) }
+        : undefined,
+      teamMembers: body.teamMemberIds?.length
+        ? { create: body.teamMemberIds.map((userId: string) => ({ user: { connect: { id: userId } } })) }
         : undefined
+    },
+    include: {
+      vendors: { include: { vendor: true } },
+      artists: { include: { artist: true } },
+      teamMembers: { include: { user: { select: { id: true, name: true, designation: true, email: true } } } }
     }
   });
 

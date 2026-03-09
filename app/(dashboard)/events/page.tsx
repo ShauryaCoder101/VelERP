@@ -1,634 +1,296 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { EventItem } from "../../../lib/events";
+import { useRouter } from "next/navigation";
 
-type VendorSummary = {
+type VendorSummary = { id: string; companyName: string };
+type ArtistSummary = { id: string; name: string };
+type TeamSummary = { id: string; name: string; designation: string };
+
+type EventCard = {
   id: string;
   companyName: string;
+  eventName: string;
+  pocName: string;
+  pocPhone: string;
+  phase: string;
+  fromDate: string;
+  toDate: string;
+  vendorIds: string[];
+  artistIds: string[];
+  teamMemberIds: string[];
+  vendorNames: string[];
+  artistNames: string[];
+  teamNames: string[];
 };
 
-type ArtistSummary = {
-  id: string;
-  name: string;
+const PHASE_ORDER = ["ONGOING", "PREPARATION", "BIDDING", "PITCHING", "IDEATION", "FINISHED"] as const;
+const PHASE_LABELS: Record<string, string> = {
+  ONGOING: "Ongoing", PREPARATION: "Preparation", BIDDING: "Bidding",
+  PITCHING: "Pitching", IDEATION: "Ideation", FINISHED: "Finished"
 };
+const PHASE_COLORS: Record<string, string> = {
+  ONGOING: "#16b65f", PREPARATION: "#e89b0c", BIDDING: "#3b82f6",
+  PITCHING: "#8b5cf6", IDEATION: "#e1162a", FINISHED: "#6b7280"
+};
+const ALL_PHASES = ["IDEATION", "PITCHING", "BIDDING", "PREPARATION", "ONGOING", "FINISHED"];
 
-const PHASES = ["Ideation", "Pitching", "Bidding", "Preparation", "Ongoing", "Finished"] as const;
-
-const normalizePhase = (phase: string) => {
-  const upper = phase.toUpperCase();
-  switch (upper) {
-    case "IDEATION":
-      return "Ideation";
-    case "PITCHING":
-      return "Pitching";
-    case "BIDDING":
-      return "Bidding";
-    case "PREPARATION":
-      return "Preparation";
-    case "ONGOING":
-      return "Ongoing";
-    case "FINISHED":
-      return "Finished";
-    default:
-      return "Ideation";
-  }
+const fmt = (iso: string) => {
+  try { return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
+  catch { return iso; }
 };
 
 export default function EventsPage() {
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const router = useRouter();
+  const [events, setEvents] = useState<EventCard[]>([]);
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
-  const [vendorsEventId, setVendorsEventId] = useState<string | null>(null);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editEventId, setEditEventId] = useState<string | null>(null);
-  const [vendorInput, setVendorInput] = useState("");
-  const [finishOpen, setFinishOpen] = useState(false);
-  const [finishArtistIds, setFinishArtistIds] = useState<string[]>([]);
-  const [finishVendorIds, setFinishVendorIds] = useState<string[]>([]);
-  const [newEvent, setNewEvent] = useState<EventItem>({
-    id: "",
-    companyName: "",
-    eventName: "",
-    pocName: "",
-    pocPhone: "",
-    phase: "Ideation",
-    fromDate: "",
-    toDate: "",
-    vendorIds: [],
-    artistIds: []
+  const [team, setTeam] = useState<TeamSummary[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const [form, setForm] = useState({
+    companyName: "", eventName: "", pocName: "", pocPhone: "",
+    phase: "IDEATION", fromDate: "", toDate: "",
+    vendorIds: [] as string[], artistIds: [] as string[], teamMemberIds: [] as string[]
   });
 
   useEffect(() => {
-    const loadData = async () => {
-      const [eventsRes, vendorsRes, artistsRes] = await Promise.all([
-        fetch("/api/events"),
-        fetch("/api/vendors"),
-        fetch("/api/artists")
-      ]);
-      if (eventsRes.ok) {
-        const data = await eventsRes.json();
-        setEvents(
-          data.map((eventItem: any) => ({
-            id: eventItem.id,
-            companyName: eventItem.companyName,
-            eventName: eventItem.eventName,
-            pocName: eventItem.pocName,
-            pocPhone: eventItem.pocPhone,
-            phase: normalizePhase(eventItem.phase),
-            fromDate: eventItem.fromDate.slice(0, 10),
-            toDate: eventItem.toDate.slice(0, 10),
-            vendorIds: (eventItem.vendors ?? []).map((ev: any) => ev.vendorId),
-            artistIds: (eventItem.artists ?? []).map((ea: any) => ea.artistId)
-          }))
-        );
-      }
-      if (vendorsRes.ok) {
-        const data = await vendorsRes.json();
-        setVendors(
-          data.map((vendor: any) => ({
-            id: vendor.id,
-            companyName: vendor.companyName
-          }))
-        );
-      }
-      if (artistsRes.ok) {
-        const data = await artistsRes.json();
-        setArtists(
-          data.map((artist: any) => ({
-            id: artist.id,
-            name: artist.name
-          }))
-        );
-      }
-    };
-    loadData();
+    Promise.all([
+      fetch("/api/events").then((r) => r.json()),
+      fetch("/api/vendors").then((r) => r.json()),
+      fetch("/api/artists").then((r) => r.json()),
+      fetch("/api/team").then((r) => r.json())
+    ]).then(([evData, vData, aData, tData]) => {
+      const vendorMap = new Map(vData.map((v: any) => [v.id, v.companyName]));
+      const artistMap = new Map(aData.map((a: any) => [a.id, a.name]));
+      const teamMap = new Map(tData.map((t: any) => [t.id, t.name]));
+
+      setVendors(vData.map((v: any) => ({ id: v.id, companyName: v.companyName })));
+      setArtists(aData.map((a: any) => ({ id: a.id, name: a.name })));
+      setTeam(tData.map((t: any) => ({ id: t.id, name: t.name, designation: t.designation })));
+      setEvents(evData.map((e: any) => {
+        const vIds = (e.vendors ?? []).map((ev: any) => ev.vendorId ?? ev.vendor?.id);
+        const aIds = (e.artists ?? []).map((ea: any) => ea.artistId ?? ea.artist?.id);
+        const tIds = (e.teamMembers ?? []).map((et: any) => et.userId ?? et.user?.id);
+        return {
+          id: e.id,
+          companyName: e.companyName,
+          eventName: e.eventName,
+          pocName: e.pocName,
+          pocPhone: e.pocPhone,
+          phase: e.phase,
+          fromDate: e.fromDate,
+          toDate: e.toDate,
+          vendorIds: vIds,
+          artistIds: aIds,
+          teamMemberIds: tIds,
+          vendorNames: vIds.map((vid: string) => vendorMap.get(vid) ?? ""),
+          artistNames: aIds.map((aid: string) => artistMap.get(aid) ?? ""),
+          teamNames: tIds.map((tid: string) => teamMap.get(tid) ?? "")
+        };
+      }));
+    });
   }, []);
 
-  const sortedEvents = useMemo(() => {
-    const phaseIndex = (phase: EventItem["phase"]) => PHASES.indexOf(phase);
-    return [...events].sort((a, b) => phaseIndex(a.phase) - phaseIndex(b.phase));
+  const grouped = useMemo(() => {
+    const map: Record<string, EventCard[]> = {};
+    for (const p of PHASE_ORDER) map[p] = [];
+    for (const ev of events) {
+      const key = ev.phase.toUpperCase();
+      if (map[key]) map[key].push(ev);
+      else {
+        if (!map[key]) map[key] = [];
+        map[key].push(ev);
+      }
+    }
+    return map;
   }, [events]);
 
-  const vendorsForEvent = useMemo(() => {
-    const target = events.find((eventItem) => eventItem.id === vendorsEventId);
-    if (!target) return [];
-    return vendors.filter((vendor) => target.vendorIds.includes(vendor.id));
-  }, [vendorsEventId, events, vendors]);
-
-  const handleAddEvent = () => {
-    setIsAddOpen(true);
-    setIsEditOpen(false);
-    setEditEventId(null);
-    setNewEvent({
-      id: "",
-      companyName: "",
-      eventName: "",
-      pocName: "",
-      pocPhone: "",
-      phase: "Ideation",
-      fromDate: "",
-      toDate: "",
-      vendorIds: [],
-      artistIds: []
-    });
-    setVendorInput("");
-    setFinishArtistIds([]);
-    setFinishVendorIds([]);
+  const resetForm = () => {
+    setForm({ companyName: "", eventName: "", pocName: "", pocPhone: "", phase: "IDEATION", fromDate: "", toDate: "", vendorIds: [], artistIds: [], teamMemberIds: [] });
   };
 
-  const handleEditEvent = (eventItem: EventItem) => {
-    setIsEditOpen(true);
-    setIsAddOpen(false);
-    setEditEventId(eventItem.id);
-    setNewEvent({ ...eventItem });
-    const vendorNames = vendors
-      .filter((vendor) => eventItem.vendorIds.includes(vendor.id))
-      .map((vendor) => vendor.companyName)
-      .join(", ");
-    setVendorInput(vendorNames);
-    if (eventItem.phase === "Finished") {
-      setFinishOpen(true);
-      setFinishVendorIds(eventItem.vendorIds);
-      setFinishArtistIds(eventItem.artistIds ?? []);
-    }
-  };
-
-  const handleCreateEvent = async () => {
-    const vendorNames = vendorInput
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
-    const selectedVendorIds = vendors
-      .filter((vendor) => vendorNames.includes(vendor.companyName))
-      .map((vendor) => vendor.id);
-    const vendorIds =
-      newEvent.phase === "Finished" && finishVendorIds.length > 0 ? finishVendorIds : selectedVendorIds;
-    const artistIds = newEvent.phase === "Finished" ? finishArtistIds : [];
-    const response = await fetch("/api/events", {
+  const handleCreate = async () => {
+    const res = await fetch("/api/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        companyName: newEvent.companyName,
-        eventName: newEvent.eventName,
-        pocName: newEvent.pocName,
-        pocPhone: newEvent.pocPhone,
-        phase: newEvent.phase.toUpperCase(),
-        fromDate: newEvent.fromDate,
-        toDate: newEvent.toDate,
-        vendorIds,
-        artistIds
-      })
+      body: JSON.stringify(form)
     });
-    if (!response.ok) return;
-    const created = await response.json();
-    setEvents((prev) => [
-      {
-        id: created.id,
-        companyName: created.companyName,
-        eventName: created.eventName,
-        pocName: created.pocName,
-        pocPhone: created.pocPhone,
-        phase: normalizePhase(created.phase),
-        fromDate: created.fromDate.slice(0, 10),
-        toDate: created.toDate.slice(0, 10),
-        vendorIds,
-        artistIds
-      },
-      ...prev
-    ]);
-    setIsAddOpen(false);
-    setVendorInput("");
-    setFinishOpen(false);
-    setFinishArtistIds([]);
-    setFinishVendorIds([]);
+    if (!res.ok) return;
+    const created = await res.json();
+    const card: EventCard = {
+      id: created.id,
+      companyName: created.companyName,
+      eventName: created.eventName,
+      pocName: created.pocName,
+      pocPhone: created.pocPhone,
+      phase: created.phase,
+      fromDate: created.fromDate,
+      toDate: created.toDate,
+      vendorIds: form.vendorIds,
+      artistIds: form.artistIds,
+      teamMemberIds: form.teamMemberIds,
+      vendorNames: form.vendorIds.map((vid) => vendors.find((v) => v.id === vid)?.companyName ?? ""),
+      artistNames: form.artistIds.map((aid) => artists.find((a) => a.id === aid)?.name ?? ""),
+      teamNames: form.teamMemberIds.map((tid) => team.find((t) => t.id === tid)?.name ?? "")
+    };
+    setEvents((prev) => [card, ...prev]);
+    setAddOpen(false);
+    resetForm();
   };
 
-  const handleUpdateEvent = async () => {
-    if (editEventId === null) return;
-    const vendorNames = vendorInput
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
-    const selectedVendorIds = vendors
-      .filter((vendor) => vendorNames.includes(vendor.companyName))
-      .map((vendor) => vendor.id);
-    const vendorIds =
-      newEvent.phase === "Finished" && finishVendorIds.length > 0 ? finishVendorIds : selectedVendorIds;
-    const artistIds = newEvent.phase === "Finished" ? finishArtistIds : [];
-
-    const response = await fetch(`/api/events/${editEventId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        companyName: newEvent.companyName,
-        eventName: newEvent.eventName,
-        pocName: newEvent.pocName,
-        pocPhone: newEvent.pocPhone,
-        phase: newEvent.phase.toUpperCase(),
-        fromDate: newEvent.fromDate,
-        toDate: newEvent.toDate,
-        vendorIds,
-        artistIds
-      })
-    });
-    if (!response.ok) return;
-    setEvents((prev) =>
-      prev.map((eventItem) =>
-        eventItem.id === editEventId
-          ? { ...newEvent, id: editEventId, vendorIds, artistIds }
-          : eventItem
-      )
-    );
-    setIsEditOpen(false);
-    setEditEventId(null);
-    setVendorInput("");
-    setFinishOpen(false);
-    setFinishArtistIds([]);
-    setFinishVendorIds([]);
+  const toggleMulti = (field: "vendorIds" | "artistIds" | "teamMemberIds", id: string) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: prev[field].includes(id) ? prev[field].filter((x) => x !== id) : [...prev[field], id]
+    }));
   };
 
   return (
     <>
       <section className="page-header">
-        <div>
-          <h1>Events</h1>
-          <p>Track all events with active ones on top.</p>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header claims-header">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <h2>All Events</h2>
-            <p className="muted">Active events are listed first.</p>
+            <h1>Events</h1>
+            <p>All events grouped by phase.</p>
           </div>
-          <div className="claims-actions">
-            <button className="btn-outline hover-text" type="button" onClick={handleAddEvent}>
-              Add Event
-            </button>
-          </div>
-        </div>
-        <div className="panel-body">
-          <div className="table-wrap">
-            <table className="events-table">
-              <thead>
-                <tr>
-                  <th>S.No</th>
-                  <th>Company Name</th>
-                  <th>Event Name</th>
-                  <th>POC Name</th>
-                  <th>POC Ph No</th>
-                  <th>Phase</th>
-                  <th>From Date</th>
-                  <th>To Date</th>
-                  <th>Vendors Involved</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedEvents.map((eventItem, index) => (
-                  <tr key={eventItem.id}>
-                    <td>{index + 1}</td>
-                    <td>{eventItem.companyName}</td>
-                    <td>{eventItem.eventName}</td>
-                    <td>{eventItem.pocName}</td>
-                    <td>{eventItem.pocPhone}</td>
-                    <td>
-                      <span className="phase-pill">{eventItem.phase}</span>
-                    </td>
-                    <td>{eventItem.fromDate}</td>
-                    <td>{eventItem.toDate}</td>
-                    <td>
-                      <button
-                        className="btn-outline hover-text"
-                        type="button"
-                        onClick={() => setVendorsEventId(eventItem.id)}
-                      >
-                        View Vendors
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        className="btn-outline hover-text"
-                        type="button"
-                        onClick={() => handleEditEvent(eventItem)}
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <button className="btn-primary" type="button" onClick={() => { resetForm(); setAddOpen(true); }}>
+            + Add Event
+          </button>
         </div>
       </section>
 
-      {vendorsEventId ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card">
-            <h3>Vendors Involved</h3>
-            <div className="history-list">
-              {vendorsForEvent.length === 0 ? (
-                <p className="muted">No vendors linked yet.</p>
-              ) : (
-                vendorsForEvent.map((vendor) => (
-                  <div key={vendor.id} className="history-item">
-                    {vendor.companyName}
+      {PHASE_ORDER.map((phase) => {
+        const cards = grouped[phase];
+        if (!cards || cards.length === 0) return null;
+        const color = PHASE_COLORS[phase] ?? "#e1162a";
+        return (
+          <section key={phase} className="phase-section">
+            <div className="phase-section-header">
+              <span className="phase-section-dot" style={{ background: color }} />
+              <h2>{PHASE_LABELS[phase] ?? phase}</h2>
+              <span className="muted">({cards.length})</span>
+            </div>
+            <div className="event-cards-grid">
+              {cards.map((ev) => (
+                <button
+                  key={ev.id}
+                  type="button"
+                  className="event-card"
+                  onClick={() => router.push(`/events/${ev.id}`)}
+                >
+                  <div className="event-card-top">
+                    <span className="event-card-phase" style={{ background: `${color}18`, color }}>{PHASE_LABELS[ev.phase.toUpperCase()] ?? ev.phase}</span>
+                    <span className="event-card-dates">{fmt(ev.fromDate)} – {fmt(ev.toDate)}</span>
                   </div>
-                ))
-              )}
-            </div>
-            <div className="modal-actions">
-              <button className="btn-outline hover-text" type="button" onClick={() => setVendorsEventId(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {finishOpen ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card">
-            <h3>Finished Event Details</h3>
-            <label className="auth-label" htmlFor="finish-artists">
-              Artist Names (if any)
-            </label>
-            <select
-              id="finish-artists"
-              className="input select"
-              multiple
-              value={finishArtistIds}
-              onChange={(event) => {
-                const values = Array.from(event.target.selectedOptions).map((opt) => opt.value);
-                setFinishArtistIds(values);
-              }}
-            >
-              {artists.map((artist) => (
-                <option key={artist.id} value={artist.id}>
-                  {artist.name}
-                </option>
+                  <h3 className="event-card-title">{ev.eventName}</h3>
+                  <p className="event-card-company">{ev.companyName}</p>
+                  <div className="event-card-meta">
+                    <span>POC: {ev.pocName}</span>
+                    {ev.vendorNames.length > 0 && <span>{ev.vendorNames.length} vendor{ev.vendorNames.length > 1 ? "s" : ""}</span>}
+                    {ev.artistNames.length > 0 && <span>{ev.artistNames.length} artist{ev.artistNames.length > 1 ? "s" : ""}</span>}
+                    {ev.teamNames.length > 0 && <span>{ev.teamNames.length} team</span>}
+                  </div>
+                  {ev.teamNames.length > 0 && (
+                    <div className="event-card-avatars">
+                      {ev.teamNames.slice(0, 4).map((name, i) => (
+                        <span key={i} className="avatar" style={{ width: 28, height: 28, fontSize: 11, marginLeft: i > 0 ? -8 : 0 }}>{name.charAt(0)}</span>
+                      ))}
+                      {ev.teamNames.length > 4 && <span className="muted" style={{ marginLeft: 4 }}>+{ev.teamNames.length - 4}</span>}
+                    </div>
+                  )}
+                </button>
               ))}
-            </select>
-            <label className="auth-label" htmlFor="finish-vendors">
-              Vendor Names (if any)
-            </label>
-            <select
-              id="finish-vendors"
-              className="input select"
-              multiple
-              value={finishVendorIds}
-              onChange={(event) => {
-                const values = Array.from(event.target.selectedOptions).map((opt) => opt.value);
-                setFinishVendorIds(values);
-              }}
-            >
-              {vendors.map((vendor) => (
-                <option key={vendor.id} value={vendor.id}>
-                  {vendor.companyName}
-                </option>
-              ))}
-            </select>
-            <div className="modal-actions">
-              <button className="btn-outline hover-text" type="button" onClick={() => setFinishOpen(false)}>
-                Done
-              </button>
             </div>
-          </div>
-        </div>
-      ) : null}
+          </section>
+        );
+      })}
 
-      {isAddOpen ? (
+      {events.length === 0 && (
+        <section className="panel">
+          <div className="empty-state">No events yet. Click &quot;+ Add Event&quot; to create one.</div>
+        </section>
+      )}
+
+      {addOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card">
+          <div className="modal-card" style={{ maxWidth: 520, maxHeight: "90vh", overflowY: "auto" }}>
             <h3>Add Event</h3>
-            <label className="auth-label" htmlFor="event-company">
-              Company Name
-            </label>
-            <input
-              id="event-company"
-              className="input"
-              value={newEvent.companyName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, companyName: event.target.value }))}
-              placeholder="Company"
-            />
-            <label className="auth-label" htmlFor="event-name">
-              Event Name
-            </label>
-            <input
-              id="event-name"
-              className="input"
-              value={newEvent.eventName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, eventName: event.target.value }))}
-              placeholder="Event"
-            />
-            <label className="auth-label" htmlFor="event-poc-name">
-              POC Name
-            </label>
-            <input
-              id="event-poc-name"
-              className="input"
-              value={newEvent.pocName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, pocName: event.target.value }))}
-              placeholder="POC name"
-            />
-            <label className="auth-label" htmlFor="event-poc-phone">
-              POC Ph No
-            </label>
-            <input
-              id="event-poc-phone"
-              className="input"
-              value={newEvent.pocPhone}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, pocPhone: event.target.value }))}
-              placeholder="+91"
-            />
-            <label className="auth-label" htmlFor="event-phase">
-              Phase
-            </label>
-            <select
-              id="event-phase"
-              className="input select"
-              value={newEvent.phase}
-              onChange={(event) => {
-                const phase = event.target.value as EventItem["phase"];
-                setNewEvent((prev) => ({ ...prev, phase }));
-                if (phase === "Finished") {
-                  setFinishOpen(true);
-                } else {
-                  setFinishOpen(false);
-                  setFinishArtistIds([]);
-                  setFinishVendorIds([]);
-                }
-              }}
-            >
-              {PHASES.map((phase) => (
-                <option key={phase} value={phase}>
-                  {phase}
-                </option>
-              ))}
+
+            <label className="auth-label">Event Name</label>
+            <input className="input" value={form.eventName} onChange={(e) => setForm((p) => ({ ...p, eventName: e.target.value }))} placeholder="e.g. Annual Gala 2026" />
+
+            <label className="auth-label">Company Name</label>
+            <input className="input" value={form.companyName} onChange={(e) => setForm((p) => ({ ...p, companyName: e.target.value }))} placeholder="Client company" />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="auth-label">POC Name</label>
+                <input className="input" value={form.pocName} onChange={(e) => setForm((p) => ({ ...p, pocName: e.target.value }))} placeholder="Point of contact" />
+              </div>
+              <div>
+                <label className="auth-label">POC Phone</label>
+                <input className="input" value={form.pocPhone} onChange={(e) => setForm((p) => ({ ...p, pocPhone: e.target.value }))} placeholder="+91" />
+              </div>
+            </div>
+
+            <label className="auth-label">Phase</label>
+            <select className="input select" value={form.phase} onChange={(e) => setForm((p) => ({ ...p, phase: e.target.value }))}>
+              {ALL_PHASES.map((p) => <option key={p} value={p}>{PHASE_LABELS[p]}</option>)}
             </select>
-            <label className="auth-label" htmlFor="event-from">
-              From Date
-            </label>
-            <input
-              id="event-from"
-              className="input"
-              type="date"
-              value={newEvent.fromDate}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, fromDate: event.target.value }))}
-            />
-            <label className="auth-label" htmlFor="event-to">
-              To Date
-            </label>
-            <input
-              id="event-to"
-              className="input"
-              type="date"
-              value={newEvent.toDate}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, toDate: event.target.value }))}
-            />
-            <label className="auth-label" htmlFor="event-vendors">
-              Vendors Involved
-            </label>
-            <input
-              id="event-vendors"
-              className="input"
-              list="vendor-options"
-              value={vendorInput}
-              onChange={(event) => setVendorInput(event.target.value)}
-              placeholder="Type vendor names, separated by commas"
-            />
-            <datalist id="vendor-options">
-              {vendors.map((vendor) => (
-                <option key={vendor.id} value={vendor.companyName} />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label className="auth-label">Start Date</label>
+                <input className="input" type="date" value={form.fromDate} onChange={(e) => setForm((p) => ({ ...p, fromDate: e.target.value }))} />
+              </div>
+              <div>
+                <label className="auth-label">End Date</label>
+                <input className="input" type="date" value={form.toDate} onChange={(e) => setForm((p) => ({ ...p, toDate: e.target.value }))} />
+              </div>
+            </div>
+
+            <label className="auth-label">Velocity Team Members</label>
+            <div className="checkbox-list">
+              {team.map((t) => (
+                <label key={t.id} className="checkbox-option">
+                  <input type="checkbox" checked={form.teamMemberIds.includes(t.id)} onChange={() => toggleMulti("teamMemberIds", t.id)} />
+                  <span>{t.name} <span className="muted">({t.designation})</span></span>
+                </label>
               ))}
-            </datalist>
+            </div>
+
+            <label className="auth-label">Vendors Involved</label>
+            <div className="checkbox-list">
+              {vendors.map((v) => (
+                <label key={v.id} className="checkbox-option">
+                  <input type="checkbox" checked={form.vendorIds.includes(v.id)} onChange={() => toggleMulti("vendorIds", v.id)} />
+                  <span>{v.companyName}</span>
+                </label>
+              ))}
+              {vendors.length === 0 && <p className="muted">No vendors in system yet.</p>}
+            </div>
+
+            <label className="auth-label">Artists Involved</label>
+            <div className="checkbox-list">
+              {artists.map((a) => (
+                <label key={a.id} className="checkbox-option">
+                  <input type="checkbox" checked={form.artistIds.includes(a.id)} onChange={() => toggleMulti("artistIds", a.id)} />
+                  <span>{a.name}</span>
+                </label>
+              ))}
+              {artists.length === 0 && <p className="muted">No artists in system yet.</p>}
+            </div>
+
             <div className="modal-actions">
-              <button className="btn-outline hover-text" type="button" onClick={() => setIsAddOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" type="button" onClick={handleCreateEvent}>
+              <button className="btn-outline hover-text" type="button" onClick={() => setAddOpen(false)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={handleCreate} disabled={!form.eventName || !form.companyName || !form.fromDate || !form.toDate}>
                 Save Event
               </button>
             </div>
           </div>
         </div>
-      ) : null}
-
-      {isEditOpen ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card">
-            <h3>Edit Event</h3>
-            <label className="auth-label" htmlFor="edit-event-company">
-              Company Name
-            </label>
-            <input
-              id="edit-event-company"
-              className="input"
-              value={newEvent.companyName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, companyName: event.target.value }))}
-              placeholder="Company"
-            />
-            <label className="auth-label" htmlFor="edit-event-name">
-              Event Name
-            </label>
-            <input
-              id="edit-event-name"
-              className="input"
-              value={newEvent.eventName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, eventName: event.target.value }))}
-              placeholder="Event"
-            />
-            <label className="auth-label" htmlFor="edit-event-poc-name">
-              POC Name
-            </label>
-            <input
-              id="edit-event-poc-name"
-              className="input"
-              value={newEvent.pocName}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, pocName: event.target.value }))}
-              placeholder="POC name"
-            />
-            <label className="auth-label" htmlFor="edit-event-poc-phone">
-              POC Ph No
-            </label>
-            <input
-              id="edit-event-poc-phone"
-              className="input"
-              value={newEvent.pocPhone}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, pocPhone: event.target.value }))}
-              placeholder="+91"
-            />
-            <label className="auth-label" htmlFor="edit-event-phase">
-              Phase
-            </label>
-            <select
-              id="edit-event-phase"
-              className="input select"
-              value={newEvent.phase}
-              onChange={(event) => {
-                const phase = event.target.value as EventItem["phase"];
-                setNewEvent((prev) => ({ ...prev, phase }));
-                if (phase === "Finished") {
-                  setFinishOpen(true);
-                } else {
-                  setFinishOpen(false);
-                  setFinishArtistIds([]);
-                  setFinishVendorIds([]);
-                }
-              }}
-            >
-              {PHASES.map((phase) => (
-                <option key={phase} value={phase}>
-                  {phase}
-                </option>
-              ))}
-            </select>
-            <label className="auth-label" htmlFor="edit-event-from">
-              From Date
-            </label>
-            <input
-              id="edit-event-from"
-              className="input"
-              type="date"
-              value={newEvent.fromDate}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, fromDate: event.target.value }))}
-            />
-            <label className="auth-label" htmlFor="edit-event-to">
-              To Date
-            </label>
-            <input
-              id="edit-event-to"
-              className="input"
-              type="date"
-              value={newEvent.toDate}
-              onChange={(event) => setNewEvent((prev) => ({ ...prev, toDate: event.target.value }))}
-            />
-            <label className="auth-label" htmlFor="edit-event-vendors">
-              Vendors Involved
-            </label>
-            <input
-              id="edit-event-vendors"
-              className="input"
-              list="vendor-options"
-              value={vendorInput}
-              onChange={(event) => setVendorInput(event.target.value)}
-              placeholder="Type vendor names, separated by commas"
-            />
-            <div className="modal-actions">
-              <button className="btn-outline hover-text" type="button" onClick={() => setIsEditOpen(false)}>
-                Cancel
-              </button>
-              <button className="btn-primary" type="button" onClick={handleUpdateEvent}>
-                Update Event
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      )}
     </>
   );
 }
