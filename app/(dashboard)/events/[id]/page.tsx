@@ -12,6 +12,23 @@ type UploadItem = {
   user: { id: string; name: string };
 };
 
+type ExpenseItemRow = {
+  id: string;
+  eventName: string;
+  location: string;
+  type: string;
+  date: string;
+  amount: number;
+};
+
+type ClaimItem = {
+  id: string;
+  status: string;
+  createdAt: string;
+  user: { id: string; name: string; designation: string };
+  items: ExpenseItemRow[];
+};
+
 type EventDetail = {
   id: string;
   companyName: string;
@@ -21,10 +38,13 @@ type EventDetail = {
   phase: string;
   fromDate: string;
   toDate: string;
+  costSheetUrl: string | null;
+  closingSheetUrl: string | null;
   vendors: { vendor: { id: string; companyName: string; phone: string; work: string; location?: string; gstin?: string } }[];
   artists: { artist: { id: string; name: string; phone: string; category: string; location?: string; socialLink?: string } }[];
   teamMembers: { user: { id: string; name: string; designation: string; email: string } }[];
   uploads: UploadItem[];
+  claims: ClaimItem[];
 };
 
 const phaseLabel = (p: string) => {
@@ -58,12 +78,16 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const costSheetRef = useRef<HTMLInputElement>(null);
+  const closingSheetRef = useRef<HTMLInputElement>(null);
 
   const [ev, setEv] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [costSheetUploading, setCostSheetUploading] = useState(false);
+  const [closingSheetUploading, setClosingSheetUploading] = useState(false);
 
   const loadEvent = () => {
     fetch(`/api/events/${id}`)
@@ -110,6 +134,41 @@ export default function EventDetailPage() {
     loadEvent();
   };
 
+  const handleSheetUpload = async (file: File, type: "cost-sheet" | "closing-sheet") => {
+    if (!ev) return;
+    const setter = type === "cost-sheet" ? setCostSheetUploading : setClosingSheetUploading;
+    setter(true);
+    try {
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type, eventId: ev.id })
+      });
+      if (!presignRes.ok) { setter(false); return; }
+      const { uploadUrl, fileUrl } = await presignRes.json();
+      await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+
+      const field = type === "cost-sheet" ? "costSheetUrl" : "closingSheetUrl";
+      await fetch(`/api/events/${ev.id}/${type}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: fileUrl })
+      });
+      loadEvent();
+    } catch { /* ignore */ }
+    setter(false);
+    if (type === "cost-sheet" && costSheetRef.current) costSheetRef.current.value = "";
+    if (type === "closing-sheet" && closingSheetRef.current) closingSheetRef.current.value = "";
+  };
+
+  const handleRemoveCostSheet = async () => {
+    if (!ev) return;
+    setCostSheetUploading(true);
+    await fetch(`/api/events/${ev.id}/cost-sheet`, { method: "DELETE" });
+    loadEvent();
+    setCostSheetUploading(false);
+  };
+
   if (loading) return <p style={{ padding: 32 }}>Loading...</p>;
   if (!ev) return <p style={{ padding: 32 }}>Event not found.</p>;
 
@@ -121,15 +180,43 @@ export default function EventDetailPage() {
   return (
     <>
       <section className="page-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <button className="btn-outline hover-text" type="button" onClick={() => router.push("/events")} style={{ padding: "6px 14px" }}>
             ← Back
           </button>
-          <div>
+          <div style={{ flex: 1, minWidth: 180 }}>
             <h1>{ev.eventName}</h1>
             <p>{ev.companyName}</p>
           </div>
-          <span className="phase-pill" style={{ background: `${color}18`, color, marginLeft: "auto" }}>{phase}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+            <span className="phase-pill" style={{ background: `${color}18`, color }}>{phase}</span>
+
+            <input ref={costSheetRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx" style={{ display: "none" }}
+              onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0], "cost-sheet")} />
+
+            {ev.costSheetUrl ? (
+              <>
+                <a href={ev.costSheetUrl} target="_blank" rel="noopener noreferrer" className="btn-outline hover-text" style={{ padding: "6px 14px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Cost Sheet
+                </a>
+                <button className="btn-outline hover-text" type="button" disabled={costSheetUploading}
+                  onClick={() => costSheetRef.current?.click()} style={{ padding: "6px 14px" }}>
+                  {costSheetUploading ? "Uploading…" : "Update"}
+                </button>
+                <button className="btn-outline hover-text" type="button" onClick={handleRemoveCostSheet}
+                  style={{ padding: "6px 14px", color: "var(--red)" }}>
+                  Remove
+                </button>
+              </>
+            ) : (
+              <button className="btn-primary" type="button" disabled={costSheetUploading}
+                onClick={() => costSheetRef.current?.click()} style={{ padding: "6px 14px", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {costSheetUploading ? "Uploading…" : "Upload Cost Sheet"}
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -217,6 +304,57 @@ export default function EventDetailPage() {
         </section>
       </div>
 
+      {/* Expense Claims section - full width */}
+      <section className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-header claims-header">
+          <h2>Expense Claims</h2>
+          <span className="muted">{ev.claims.length} claim{ev.claims.length !== 1 ? "s" : ""} · ₹{ev.claims.reduce((sum, c) => sum + c.items.reduce((s, i) => s + i.amount, 0), 0).toLocaleString("en-IN")}</span>
+        </div>
+        <div className="panel-body">
+          {ev.claims.length === 0 ? (
+            <div className="empty-state">No expense claims filed for this event.</div>
+          ) : (
+            <div className="table-wrap">
+              <table className="claims-table">
+                <thead>
+                  <tr>
+                    <th>Filed By</th>
+                    <th>Status</th>
+                    <th>Items</th>
+                    <th>Total Amount</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ev.claims.map((claim) => {
+                    const total = claim.items.reduce((s, i) => s + i.amount, 0);
+                    const statusLabel = claim.status === "ACTIVE" ? "Approved" : claim.status === "INACTIVE" ? "Pending" : claim.status;
+                    const statusClass = claim.status === "ACTIVE" ? "active" : "inactive";
+                    return (
+                      <tr key={claim.id}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{claim.user.name.charAt(0)}</span>
+                            <div>
+                              <strong>{claim.user.name}</strong>
+                              <div className="muted">{claim.user.designation}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td><span className={`status-pill ${statusClass}`}>{statusLabel}</span></td>
+                        <td>{claim.items.length} item{claim.items.length !== 1 ? "s" : ""}</td>
+                        <td style={{ fontWeight: 600 }}>₹{total.toLocaleString("en-IN")}</td>
+                        <td className="muted">{fmt(claim.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Upload & Photos section - full width */}
       <section className="panel" style={{ marginTop: 16 }}>
         <div className="panel-header claims-header">
@@ -279,6 +417,47 @@ export default function EventDetailPage() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      </section>
+
+      {/* Closing Sheet - bottom */}
+      <section className="panel closing-sheet-panel" style={{ marginTop: 16 }}>
+        <div className="panel-header claims-header">
+          <div>
+            <h2>Closing Sheet</h2>
+            <p className="muted">Uploading a closing sheet will mark this event as Finished.</p>
+          </div>
+        </div>
+        <div className="panel-body">
+          <input ref={closingSheetRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx" style={{ display: "none" }}
+            onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0], "closing-sheet")} />
+
+          {ev.closingSheetUrl ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div className="detail-person-card" style={{ flex: 1 }}>
+                <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#16b65f" }}>✓</div>
+                <div>
+                  <strong>Closing sheet uploaded</strong>
+                  <span className="muted">This event has been marked as Finished.</span>
+                </div>
+              </div>
+              <a href={ev.closingSheetUrl} target="_blank" rel="noopener noreferrer" className="btn-outline hover-text"
+                style={{ padding: "8px 16px", display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download
+              </a>
+            </div>
+          ) : (
+            <div className="closing-sheet-cta">
+              <p style={{ marginBottom: 12 }}>No closing sheet has been added yet. Once uploaded, the event phase will automatically change to <strong>Finished</strong>.</p>
+              <button className="btn-primary" type="button" disabled={closingSheetUploading}
+                onClick={() => closingSheetRef.current?.click()}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                {closingSheetUploading ? "Uploading…" : "Upload Closing Sheet"}
+              </button>
+            </div>
           )}
         </div>
       </section>

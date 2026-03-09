@@ -7,9 +7,15 @@ const SESSION_TTL_DAYS = 7;
 
 type SessionUser = {
   id: string;
+  uid: string;
   role: Role;
   name: string;
   email: string;
+  designation: string;
+  team: string | null;
+  avatarUrl: string | null;
+  status: string;
+  createdAt: Date;
 };
 
 const parseCookies = (cookieHeader: string | null) => {
@@ -55,9 +61,15 @@ export const getSessionUser = async (request: Request): Promise<SessionUser | nu
 
   return {
     id: session.user.id,
+    uid: session.user.uid,
     role: normalizeRole(session.user.role),
     name: session.user.name,
-    email: session.user.email
+    email: session.user.email,
+    designation: session.user.designation,
+    team: session.user.team,
+    avatarUrl: session.user.avatarUrl,
+    status: session.user.status,
+    createdAt: session.user.createdAt
   };
 };
 

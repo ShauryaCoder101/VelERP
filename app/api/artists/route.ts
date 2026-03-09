@@ -1,5 +1,6 @@
 import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
+import { createNotification } from "../../../lib/notifications";
 
 export async function GET() {
   const artists = await prisma.artist.findMany({
@@ -10,7 +11,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { role, id: userId } = await getRequestUser(request);
+  const { role, id: userId, name: userName } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) {
     return new Response("Forbidden", { status: 403 });
   }
@@ -30,5 +31,6 @@ export async function POST(request: Request) {
     }
   });
 
+  await createNotification(userId, "artist", "New Artist Added", `${userName} added artist "${artist.name}"`);
   return Response.json(artist);
 }

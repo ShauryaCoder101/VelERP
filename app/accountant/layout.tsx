@@ -54,8 +54,8 @@ export default async function AccountantLayout({ children }: AccountantLayoutPro
             <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
           </div>
           <div className="footer-contact">
-            <span>contact@erpsuite.com</span>
-            <span>+1 234 567 890</span>
+            <span>contact@velocityindia.net</span>
+            <span>+91 9319713708</span>
           </div>
           <div className="footer-copy">© 2026 Velocity Brand Server Pvt. Ltd. All rights reserved.</div>
         </footer>

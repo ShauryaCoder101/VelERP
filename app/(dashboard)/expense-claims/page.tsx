@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { currentUser } from "../../../lib/auth";
+import { useEffect, useState } from "react";
+
+type EventOption = { id: string; eventName: string; companyName: string };
 
 type ClaimRow = {
   id: number;
-  event: string;
+  eventId: string;
   location: string;
   type: string;
   date: string;
@@ -15,7 +16,7 @@ type ClaimRow = {
 
 const createRow = (id: number): ClaimRow => ({
   id,
-  event: "",
+  eventId: "",
   location: "",
   type: "",
   date: "",
@@ -25,6 +26,19 @@ const createRow = (id: number): ClaimRow => ({
 
 export default function ExpenseClaimsPage() {
   const [rows, setRows] = useState<ClaimRow[]>([createRow(1)]);
+  const [events, setEvents] = useState<EventOption[]>([]);
+
+  useEffect(() => {
+    fetch("/api/events")
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        const active = data
+          .filter((e) => e.phase !== "FINISHED")
+          .map((e) => ({ id: e.id, eventName: e.eventName, companyName: e.companyName }));
+        setEvents(active);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleRowChange = (id: number, field: keyof ClaimRow, value: string | File | null) => {
     setRows((prev) =>
@@ -40,29 +54,30 @@ export default function ExpenseClaimsPage() {
     setRows((prev) => prev.filter((row) => row.id !== id));
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const payload = {
-      items: rows.map((row) => ({
-        eventName: row.event,
-        location: row.location,
-        type: row.type,
-        date: row.date,
-        amount: Number(row.amount)
-      })),
-      attachments: rows
-        .map((row) => row.attachment)
-        .filter(Boolean)
-        .map((file) => ({
-          fileUrl: (file as File).name,
-          fileType: (file as File).type
-        }))
-    };
-    fetch("/api/expense-claims", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    }).catch(() => null);
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    for (const row of rows) {
+      if (!row.eventId || !row.date || !row.amount) continue;
+      const selectedEvent = events.find((ev) => ev.id === row.eventId);
+      await fetch("/api/expense-claims", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: row.eventId,
+          items: [{
+            eventName: selectedEvent?.eventName ?? "",
+            location: row.location,
+            type: row.type,
+            date: row.date,
+            amount: Number(row.amount)
+          }],
+          attachments: row.attachment
+            ? [{ fileUrl: row.attachment.name, fileType: row.attachment.type }]
+            : []
+        })
+      }).catch(() => null);
+    }
+    setRows([createRow(1)]);
   };
 
   return (
@@ -78,7 +93,7 @@ export default function ExpenseClaimsPage() {
         <div className="panel-header claims-header">
           <div>
             <h2>Expense Claim Form</h2>
-            <p className="muted">Submitted by UID: {currentUser.uid}</p>
+            <p className="muted">Select an active event to file a claim against.</p>
           </div>
           <div className="claims-actions">
             <button className="btn-outline hover-text" type="button" onClick={handleAddRow}>
@@ -110,20 +125,24 @@ export default function ExpenseClaimsPage() {
                     <tr key={row.id}>
                       <td>{index + 1}</td>
                       <td>
-                        <input
-                          className="input"
-                          value={row.event}
-                          onChange={(event) => handleRowChange(row.id, "event", event.target.value)}
-                          placeholder="Event name"
-                        />
+                        <select
+                          className="input select"
+                          value={row.eventId}
+                          onChange={(ev) => handleRowChange(row.id, "eventId", ev.target.value)}
+                        >
+                          <option value="">Select event</option>
+                          {events.map((ev) => (
+                            <option key={ev.id} value={ev.id}>
+                              {ev.eventName} ({ev.companyName})
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
                         <input
                           className="input"
                           value={row.location}
-                          onChange={(event) =>
-                            handleRowChange(row.id, "location", event.target.value)
-                          }
+                          onChange={(ev) => handleRowChange(row.id, "location", ev.target.value)}
                           placeholder="City / Venue"
                         />
                       </td>
@@ -131,7 +150,7 @@ export default function ExpenseClaimsPage() {
                         <input
                           className="input"
                           value={row.type}
-                          onChange={(event) => handleRowChange(row.id, "type", event.target.value)}
+                          onChange={(ev) => handleRowChange(row.id, "type", ev.target.value)}
                           placeholder="Travel, Food..."
                         />
                       </td>
@@ -140,7 +159,7 @@ export default function ExpenseClaimsPage() {
                           className="input"
                           type="date"
                           value={row.date}
-                          onChange={(event) => handleRowChange(row.id, "date", event.target.value)}
+                          onChange={(ev) => handleRowChange(row.id, "date", ev.target.value)}
                         />
                       </td>
                       <td>
@@ -149,7 +168,7 @@ export default function ExpenseClaimsPage() {
                           type="number"
                           min="0"
                           value={row.amount}
-                          onChange={(event) => handleRowChange(row.id, "amount", event.target.value)}
+                          onChange={(ev) => handleRowChange(row.id, "amount", ev.target.value)}
                           placeholder="0.00"
                         />
                       </td>
@@ -158,8 +177,8 @@ export default function ExpenseClaimsPage() {
                           className="input-file"
                           type="file"
                           accept=".pdf,.jpeg,.jpg"
-                          onChange={(event) =>
-                            handleRowChange(row.id, "attachment", event.target.files?.[0] ?? null)
+                          onChange={(ev) =>
+                            handleRowChange(row.id, "attachment", ev.target.files?.[0] ?? null)
                           }
                         />
                       </td>

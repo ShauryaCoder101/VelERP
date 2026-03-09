@@ -2,12 +2,20 @@ import { NextRequest } from "next/server";
 import { prisma } from "../../../../lib/db";
 import type { Prisma } from "@prisma/client";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
+import { createNotification } from "../../../../lib/notifications";
 
 const eventInclude = {
   vendors: { include: { vendor: true } },
   artists: { include: { artist: true } },
   teamMembers: { include: { user: { select: { id: true, name: true, designation: true, email: true } } } },
-  uploads: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } }
+  uploads: { include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: "desc" as const } },
+  claims: {
+    include: {
+      user: { select: { id: true, name: true, designation: true } },
+      items: true
+    },
+    orderBy: { createdAt: "desc" as const }
+  }
 };
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -21,7 +29,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 }
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { role } = await getRequestUser(request);
+  const { role, id: userId, name: userName } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) {
     return new Response("Forbidden", { status: 403 });
   }
@@ -75,5 +83,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     where: { id: eventId },
     include: eventInclude
   });
+
+  if (body.phase === "FINISHED" && event) {
+    await createNotification(userId, "event_closed", "Event Closed", `${userName} closed event "${event.eventName}" for ${event.companyName}`);
+  }
+
   return Response.json(event);
 }

@@ -1,5 +1,6 @@
 import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
+import { createNotification } from "../../../lib/notifications";
 
 export async function GET() {
   const events = await prisma.event.findMany({
@@ -14,7 +15,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { role } = await getRequestUser(request);
+  const { role, id: userId, name: userName } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) {
     return new Response("Forbidden", { status: 403 });
   }
@@ -46,5 +47,6 @@ export async function POST(request: Request) {
     }
   });
 
+  await createNotification(userId, "event_added", "New Event Created", `${userName} created event "${event.eventName}" for ${event.companyName}`);
   return Response.json(event);
 }

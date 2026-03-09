@@ -148,8 +148,9 @@ a {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 18px 32px 18px 116px;
+  justify-content: space-between;
+  height: 60px;
+  padding: 6px 32px 6px 86px;
   background: var(--white);
   border-bottom: 1px solid var(--gray-200);
   position: fixed;
@@ -164,10 +165,9 @@ a {
   align-items: center;
   gap: 12px;
   font-weight: 600;
-  position: absolute;
-  left: 0;
-  right: 0;
-  justify-content: center;
+  margin-right: auto;
+  margin-left: -100px;
+  height: 550%;
 }
 
 .brand-name {
@@ -181,10 +181,10 @@ a {
 }
 
 .logo-topbar {
-  width: 10%;
+  width: auto;
+  height: 100%;
+  max-height: 100%;
   max-width: none;
-  height: auto;
-  margin-left:-1750px;
 }
 
 .topbar-actions {
@@ -221,6 +221,126 @@ a {
   position: absolute;
   top: 8px;
   right: 10px;
+}
+
+/* ── Notifications ── */
+
+.noti-wrap {
+  position: relative;
+}
+
+.noti-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.noti-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 370px;
+  max-height: 460px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.12);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.noti-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-200);
+  font-size: 15px;
+}
+
+.noti-mark-all {
+  background: none;
+  border: none;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.noti-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.noti-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border: none;
+  border-bottom: 1px solid var(--gray-100);
+  background: var(--white);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background .15s;
+}
+
+.noti-item:hover {
+  background: var(--gray-100);
+}
+
+.noti-unread {
+  background: #fef2f2;
+}
+
+.noti-unread:hover {
+  background: #fee2e2;
+}
+
+.noti-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.noti-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.noti-body {
+  font-size: 13px;
+  color: var(--black);
+  line-height: 1.4;
+}
+
+.noti-time {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
+.noti-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--gray-500);
+  font-size: 13px;
 }
 
 .profile-button {
@@ -1075,6 +1195,81 @@ select[multiple].input {
   cursor: pointer;
 }
 
+/* ── BD Leaderboard ── */
+
+.bd-leaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bd-leader-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  background: var(--gray-100);
+}
+
+.bd-leader-rank {
+  width: 32px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--gray-500);
+}
+
+.bd-leader-count {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--red);
+  white-space: nowrap;
+}
+
+/* ── Profile avatar ── */
+
+.profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar-img {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  border: 2px solid var(--gray-200);
+}
+
+.profile-avatar-edit {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--white);
+  border: 2px solid var(--gray-200);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.profile-avatar-edit:hover {
+  border-color: var(--red);
+  background: var(--red);
+  color: var(--white);
+}
+
+.profile-avatar-edit:hover svg {
+  stroke: var(--white);
+}
+
 /* ── Photo gallery ── */
 
 .photo-gallery {
@@ -1174,11 +1369,11 @@ select[multiple].input {
   }
 
   .brand {
-    left: 20px;
+    flex-shrink: 0;
   }
 
   .topbar {
-    padding-left: 104px;
+    padding-left: 76px;
   }
 }
 
