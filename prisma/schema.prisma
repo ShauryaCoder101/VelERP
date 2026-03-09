@@ -251,6 +251,7 @@ model BdCall {
   company     String
   pocName     String
   pocPhone    String
+  pocEmail    String?
   callDate    DateTime
   remarks     String?
   status      BdStatus @default(ACTIVE)

@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       company: body.company,
       pocName: body.pocName,
       pocPhone: body.pocPhone,
+      pocEmail: body.pocEmail || null,
       callDate: new Date(body.callDate),
       remarks: body.remarks || null,
       status: body.status ?? "ACTIVE",

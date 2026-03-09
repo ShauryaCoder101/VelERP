@@ -7,6 +7,7 @@ type BdCall = {
   company: string;
   pocName: string;
   pocPhone: string;
+  pocEmail: string | null;
   callDate: string;
   remarks: string | null;
   status: string;
@@ -30,7 +31,7 @@ const getMonthLabel = () => {
 export default function BusinessDevelopmentPage() {
   const [calls, setCalls] = useState<BdCall[]>([]);
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState({ company: "", pocName: "", pocPhone: "", callDate: "", remarks: "", status: "ACTIVE" });
+  const [form, setForm] = useState({ company: "", pocName: "", pocPhone: "", pocEmail: "", callDate: "", remarks: "", status: "ACTIVE" });
 
   useEffect(() => {
     fetch("/api/bd-calls").then((r) => r.json()).then(setCalls).catch(() => {});
@@ -61,7 +62,7 @@ export default function BusinessDevelopmentPage() {
       const created = await res.json();
       setCalls((prev) => [created, ...prev]);
       setAddOpen(false);
-      setForm({ company: "", pocName: "", pocPhone: "", callDate: "", remarks: "", status: "ACTIVE" });
+      setForm({ company: "", pocName: "", pocPhone: "", pocEmail: "", callDate: "", remarks: "", status: "ACTIVE" });
     }
   };
 
@@ -118,6 +119,7 @@ export default function BusinessDevelopmentPage() {
                   <th>Company</th>
                   <th>POC Name</th>
                   <th>POC Phone</th>
+                  <th>POC Email</th>
                   <th>Date of Call</th>
                   <th>Relation To / Remarks</th>
                   <th>Status</th>
@@ -133,6 +135,7 @@ export default function BusinessDevelopmentPage() {
                       <td><strong>{c.company}</strong></td>
                       <td>{c.pocName}</td>
                       <td>{c.pocPhone}</td>
+                      <td>{c.pocEmail || "—"}</td>
                       <td>{fmt(c.callDate)}</td>
                       <td>{c.remarks || "—"}</td>
                       <td>
@@ -150,7 +153,7 @@ export default function BusinessDevelopmentPage() {
                   );
                 })}
                 {calls.length === 0 && (
-                  <tr><td colSpan={8} className="empty-state">No BD calls recorded yet.</td></tr>
+                  <tr><td colSpan={9} className="empty-state">No BD calls recorded yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -169,6 +172,8 @@ export default function BusinessDevelopmentPage() {
             <input className="input" value={form.pocName} onChange={(e) => setForm((p) => ({ ...p, pocName: e.target.value }))} placeholder="Point of contact" />
             <label className="auth-label">POC Phone</label>
             <input className="input" value={form.pocPhone} onChange={(e) => setForm((p) => ({ ...p, pocPhone: e.target.value }))} placeholder="+91" />
+            <label className="auth-label">POC Email</label>
+            <input className="input" type="email" value={form.pocEmail} onChange={(e) => setForm((p) => ({ ...p, pocEmail: e.target.value }))} placeholder="email@example.com" />
             <label className="auth-label">Date of Call</label>
             <input className="input" type="date" value={form.callDate} onChange={(e) => setForm((p) => ({ ...p, callDate: e.target.value }))} />
             <label className="auth-label">Relation To / Remarks</label>

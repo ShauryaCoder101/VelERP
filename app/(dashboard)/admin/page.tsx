@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { normalizeRole } from "../../../lib/rbac";
+import { useRouter } from "next/navigation";
+import { normalizeRole, ROLE_LEVELS } from "../../../lib/rbac";
 
 const ALL_ROLES = [
   "MANAGING_DIRECTOR", "HEAD_OF_OPERATIONS", "HEAD_OF_SPECIAL_PROJECTS",
@@ -23,6 +24,8 @@ type User = {
 };
 
 export default function AdminPage() {
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUserId, setCurrentUserId] = useState("");
 
@@ -39,10 +42,20 @@ export default function AdminPage() {
 
   const load = () => {
     fetch("/api/team").then((r) => r.json()).then((d) => setUsers(d)).catch(() => {});
-    fetch("/api/auth/me").then((r) => r.json()).then((d) => setCurrentUserId(d.id)).catch(() => {});
+    fetch("/api/auth/me").then((r) => r.json()).then((d) => {
+      setCurrentUserId(d.id);
+      const role = normalizeRole(d.role) as keyof typeof ROLE_LEVELS;
+      if (ROLE_LEVELS[role] !== 1) {
+        router.replace("/");
+      } else {
+        setAuthorized(true);
+      }
+    }).catch(() => router.replace("/"));
   };
 
   useEffect(() => { load(); }, []);
+
+  if (!authorized) return null;
 
   const handleAdd = async () => {
     const res = await fetch("/api/team", {
