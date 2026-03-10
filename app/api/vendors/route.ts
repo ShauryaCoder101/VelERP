@@ -4,7 +4,7 @@ import { createNotification } from "../../../lib/notifications";
 
 export async function GET() {
   const vendors = await prisma.vendor.findMany({
-    include: { ratings: true },
+    include: { ratings: true, onboardedByUser: { select: { id: true, name: true } } },
     orderBy: { createdAt: "desc" }
   });
   return Response.json(vendors);

@@ -83,6 +83,7 @@ model Event {
   toDate          DateTime
   costSheetUrl    String?
   closingSheetUrl String?
+  createdBy       String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

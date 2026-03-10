@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       phase: body.phase,
       fromDate: new Date(body.fromDate),
       toDate: new Date(body.toDate),
+      createdBy: userId,
       vendors: body.vendorIds?.length
         ? { create: body.vendorIds.map((vendorId: string) => ({ vendor: { connect: { id: vendorId } } })) }
         : undefined,

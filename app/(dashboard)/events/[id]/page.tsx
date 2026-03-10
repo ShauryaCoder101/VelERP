@@ -40,12 +40,17 @@ type EventDetail = {
   toDate: string;
   costSheetUrl: string | null;
   closingSheetUrl: string | null;
+  createdBy: string | null;
   vendors: { vendor: { id: string; companyName: string; phone: string; work: string; location?: string; gstin?: string } }[];
   artists: { artist: { id: string; name: string; phone: string; category: string; location?: string; socialLink?: string } }[];
   teamMembers: { user: { id: string; name: string; designation: string; email: string } }[];
   uploads: UploadItem[];
   claims: ClaimItem[];
 };
+
+type VendorOption = { id: string; companyName: string };
+type ArtistOption = { id: string; name: string };
+type TeamOption = { id: string; name: string; designation: string };
 
 const phaseLabel = (p: string) => {
   const map: Record<string, string> = {
@@ -89,6 +94,17 @@ export default function EventDetailPage() {
   const [costSheetUploading, setCostSheetUploading] = useState(false);
   const [closingSheetUploading, setClosingSheetUploading] = useState(false);
 
+  const [currentUser, setCurrentUser] = useState<{ id: string; role: string } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [allVendors, setAllVendors] = useState<VendorOption[]>([]);
+  const [allArtists, setAllArtists] = useState<ArtistOption[]>([]);
+  const [allTeam, setAllTeam] = useState<TeamOption[]>([]);
+  const [editVendorIds, setEditVendorIds] = useState<string[]>([]);
+  const [editArtistIds, setEditArtistIds] = useState<string[]>([]);
+  const [editTeamIds, setEditTeamIds] = useState<string[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+
   const loadEvent = () => {
     fetch(`/api/events/${id}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -97,6 +113,52 @@ export default function EventDetailPage() {
   };
 
   useEffect(() => { loadEvent(); }, [id]);
+
+  useEffect(() => {
+    fetch("/api/auth/me").then((r) => r.ok ? r.json() : null).then((u) => u && setCurrentUser({ id: u.id, role: u.role })).catch(() => {});
+  }, []);
+
+  const openEdit = () => {
+    if (!ev) return;
+    setEditVendorIds(ev.vendors.map((v) => v.vendor.id));
+    setEditArtistIds(ev.artists.map((a) => a.artist.id));
+    setEditTeamIds(ev.teamMembers.map((t) => t.user.id));
+    Promise.all([
+      fetch("/api/vendors").then((r) => r.json()).then((d: any[]) => setAllVendors(d.map((v) => ({ id: v.id, companyName: v.companyName })))),
+      fetch("/api/artists").then((r) => r.json()).then((d: any[]) => setAllArtists(d.map((a) => ({ id: a.id, name: a.name })))),
+      fetch("/api/team").then((r) => r.json()).then((d: any[]) => setAllTeam(d.map((t) => ({ id: t.id, name: t.name, designation: t.designation }))))
+    ]).catch(() => {});
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!ev) return;
+    setEditSaving(true);
+    await fetch(`/api/events/${ev.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vendorIds: editVendorIds, artistIds: editArtistIds, teamMemberIds: editTeamIds })
+    });
+    setEditOpen(false);
+    setEditSaving(false);
+    loadEvent();
+  };
+
+  const handleDelete = async () => {
+    if (!ev) return;
+    const res = await fetch(`/api/events/${ev.id}`, { method: "DELETE" });
+    if (res.ok) {
+      router.push("/events");
+    } else {
+      const msg = await res.text();
+      alert(msg || "Failed to delete event");
+    }
+    setDeleteConfirm(false);
+  };
+
+  const canDelete = currentUser && ev && (
+    currentUser.role === "MANAGING_DIRECTOR" || ev.createdBy === currentUser.id
+  );
 
   const handleUpload = async (files: FileList) => {
     if (!files.length || !ev) return;
@@ -188,6 +250,11 @@ export default function EventDetailPage() {
             <h1>{ev.eventName}</h1>
             <p>{ev.companyName}</p>
           </div>
+          <button className="btn-outline hover-text" type="button" onClick={openEdit} style={{ padding: "6px 14px" }}>Edit Team / Vendors / Artists</button>
+          {canDelete && (
+            <button className="btn-outline hover-text" type="button" onClick={() => setDeleteConfirm(true)}
+              style={{ padding: "6px 14px", color: "var(--red)", borderColor: "var(--red)" }}>Delete Event</button>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
             <span className="phase-pill" style={{ background: `${color}18`, color }}>{phase}</span>
 
@@ -467,6 +534,70 @@ export default function EventDetailPage() {
           <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
             <button className="lightbox-close" type="button" onClick={() => setLightbox(null)}>×</button>
             <img src={lightbox} alt="Full size" className="lightbox-img" />
+          </div>
+        </div>
+      )}
+
+      {editOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: 520, maxHeight: "80vh", overflowY: "auto" }}>
+            <h3>Edit Event — Vendors, Artists & Team</h3>
+
+            <label className="auth-label">Vendors</label>
+            <div className="checkbox-list">
+              {allVendors.map((v) => (
+                <label key={v.id} className="checkbox-option">
+                  <input type="checkbox" checked={editVendorIds.includes(v.id)}
+                    onChange={(e) => setEditVendorIds(e.target.checked ? [...editVendorIds, v.id] : editVendorIds.filter((x) => x !== v.id))} />
+                  {v.companyName}
+                </label>
+              ))}
+              {allVendors.length === 0 && <span className="muted">No vendors available</span>}
+            </div>
+
+            <label className="auth-label">Artists</label>
+            <div className="checkbox-list">
+              {allArtists.map((a) => (
+                <label key={a.id} className="checkbox-option">
+                  <input type="checkbox" checked={editArtistIds.includes(a.id)}
+                    onChange={(e) => setEditArtistIds(e.target.checked ? [...editArtistIds, a.id] : editArtistIds.filter((x) => x !== a.id))} />
+                  {a.name}
+                </label>
+              ))}
+              {allArtists.length === 0 && <span className="muted">No artists available</span>}
+            </div>
+
+            <label className="auth-label">Team Members</label>
+            <div className="checkbox-list">
+              {allTeam.map((t) => (
+                <label key={t.id} className="checkbox-option">
+                  <input type="checkbox" checked={editTeamIds.includes(t.id)}
+                    onChange={(e) => setEditTeamIds(e.target.checked ? [...editTeamIds, t.id] : editTeamIds.filter((x) => x !== t.id))} />
+                  {t.name} ({t.designation})
+                </label>
+              ))}
+              {allTeam.length === 0 && <span className="muted">No team members available</span>}
+            </div>
+
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => setEditOpen(false)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={saveEdit} disabled={editSaving}>
+                {editSaving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: 420 }}>
+            <h3>Delete Event</h3>
+            <p>Are you sure you want to delete <strong>{ev.eventName}</strong>? This will remove all associated vendors, artists, team members, uploads, and expense claims. This action cannot be undone.</p>
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => setDeleteConfirm(false)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={handleDelete} style={{ background: "var(--red)" }}>Delete Event</button>
+            </div>
           </div>
         </div>
       )}

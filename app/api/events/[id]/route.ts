@@ -28,6 +28,36 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
   return Response.json(event);
 }
 
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { role, id: userId } = await getRequestUser(request);
+  if (!requireMinLevel(role, 3)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  const { id } = await context.params;
+  const event = await prisma.event.findUnique({ where: { id } });
+  if (!event) return new Response("Not found", { status: 404 });
+
+  const isMD = requireMinLevel(role, 1) && !requireMinLevel(role, 0);
+  const isOwner = event.createdBy === userId;
+  if (!isMD && !isOwner) {
+    return new Response("You can only delete events you created", { status: 403 });
+  }
+
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await tx.eventVendor.deleteMany({ where: { eventId: id } });
+    await tx.eventArtist.deleteMany({ where: { eventId: id } });
+    await tx.eventTeamMember.deleteMany({ where: { eventId: id } });
+    await tx.upload.deleteMany({ where: { eventId: id } });
+    await tx.expenseItem.deleteMany({ where: { claim: { eventId: id } } });
+    await tx.expenseAttachment.deleteMany({ where: { claim: { eventId: id } } });
+    await tx.expenseClaim.deleteMany({ where: { eventId: id } });
+    await tx.event.delete({ where: { id } });
+  });
+
+  return Response.json({ ok: true });
+}
+
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { role, id: userId, name: userName } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) {
@@ -38,18 +68,18 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const { id: eventId } = await context.params;
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.event.update({
-      where: { id: eventId },
-      data: {
-        companyName: body.companyName,
-        eventName: body.eventName,
-        pocName: body.pocName,
-        pocPhone: body.pocPhone,
-        phase: body.phase,
-        fromDate: body.fromDate ? new Date(body.fromDate) : undefined,
-        toDate: body.toDate ? new Date(body.toDate) : undefined
-      }
-    });
+    const updateData: Record<string, unknown> = {};
+    if (body.companyName !== undefined) updateData.companyName = body.companyName;
+    if (body.eventName !== undefined) updateData.eventName = body.eventName;
+    if (body.pocName !== undefined) updateData.pocName = body.pocName;
+    if (body.pocPhone !== undefined) updateData.pocPhone = body.pocPhone;
+    if (body.phase !== undefined) updateData.phase = body.phase;
+    if (body.fromDate) updateData.fromDate = new Date(body.fromDate);
+    if (body.toDate) updateData.toDate = new Date(body.toDate);
+
+    if (Object.keys(updateData).length > 0) {
+      await tx.event.update({ where: { id: eventId }, data: updateData });
+    }
 
     if (Array.isArray(body.vendorIds)) {
       await tx.eventVendor.deleteMany({ where: { eventId } });
