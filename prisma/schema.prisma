@@ -96,6 +96,7 @@ model Event {
 model Vendor {
   id           String   @id @default(uuid())
   companyName  String
+  email        String?
   phone        String
   work         String
   location     String?
