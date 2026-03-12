@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -69,9 +70,9 @@ export default function LoginPage() {
 
         {error ? <p className="auth-error">{error}</p> : null}
 
-        <button className="link-button hover-text" type="button">
+        <Link href="/forgot-password" className="link-button hover-text">
           Forgot password?
-        </button>
+        </Link>
       </div>
     </div>
   );
