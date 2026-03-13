@@ -34,9 +34,10 @@ type Deal = {
 };
 
 /* ── Constants ── */
-type Tab = "pipeline" | "contacts" | "accounts";
+type Tab = "pipeline" | "leads" | "contacts" | "accounts";
 const TABS: { key: Tab; label: string }[] = [
   { key: "pipeline", label: "Pipeline" },
+  { key: "leads", label: "Leads" },
   { key: "contacts", label: "Contacts" },
   { key: "accounts", label: "Accounts" }
 ];
@@ -62,6 +63,8 @@ const stageColor: Record<string, string> = {
   CLOSED_WON: "#16b65f", CLOSED_LOST: "#6b7280"
 };
 const sourceLabel: Record<string, string> = { WEBSITE: "Website", REFERRAL: "Referral", SOCIAL_MEDIA: "Social Media", COLD_CALL: "Cold Call", EVENT: "Event", OTHER: "Other" };
+const leadStatusLabel: Record<string, string> = { NEW: "New", CONTACTED: "Contacted", QUALIFIED: "Qualified", UNQUALIFIED: "Unqualified" };
+const leadStatusColor: Record<string, string> = { NEW: "#3b82f6", CONTACTED: "#e89b0c", QUALIFIED: "#16b65f", UNQUALIFIED: "#6b7280" };
 
 const fmt = (iso: string) => {
   try { return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }); }
@@ -106,6 +109,7 @@ export default function SalesPage() {
 
   const openEdit = (item: any) => {
     setAddOpen(false);
+    if (tab === "leads") { setLeadForm({ name: item.name, company: item.company, email: item.email ?? "", phone: item.phone ?? "", source: item.source, notes: item.notes ?? "", assignedTo: item.assignedTo ?? "" }); setAddTarget("lead"); }
     if (tab === "contacts") { setContactForm({ name: item.name, email: item.email ?? "", phone: item.phone ?? "", company: item.company ?? "", designation: item.designation ?? "", accountId: item.accountId ?? "", notes: item.notes ?? "" }); setAddTarget("contact"); }
     if (tab === "accounts") { setAccountForm({ companyName: item.companyName, industry: item.industry ?? "", phone: item.phone ?? "", email: item.email ?? "", website: item.website ?? "", address: item.address ?? "", notes: item.notes ?? "" }); setAddTarget("account"); }
     setEditItem(item);
@@ -151,7 +155,7 @@ export default function SalesPage() {
     if (!res.ok) return;
     const saved = await res.json();
 
-    if (addTarget === "lead") setLeads(prev => [saved, ...prev]);
+    if (addTarget === "lead") setLeads(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
     if (addTarget === "contact") setContacts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
     if (addTarget === "account") setAccounts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
 
@@ -163,12 +167,14 @@ export default function SalesPage() {
   const handleDelete = async () => {
     if (!deleteItem) return;
     let url = "";
+    if (tab === "leads") url = `/api/sales/leads/${deleteItem.id}`;
     if (tab === "contacts") url = `/api/sales/contacts/${deleteItem.id}`;
     if (tab === "accounts") url = `/api/sales/accounts/${deleteItem.id}`;
 
     const res = await fetch(url, { method: "DELETE" });
     if (!res.ok) return;
 
+    if (tab === "leads") setLeads(prev => prev.filter(x => x.id !== deleteItem.id));
     if (tab === "contacts") setContacts(prev => prev.filter(x => x.id !== deleteItem.id));
     if (tab === "accounts") setAccounts(prev => prev.filter(x => x.id !== deleteItem.id));
     setDeleteItem(null);
@@ -183,7 +189,7 @@ export default function SalesPage() {
             <p>Manage your sales pipeline, contacts, and accounts.</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {tab === "pipeline" && <button className="btn-primary" type="button" onClick={openAddLead}>+ Add Lead</button>}
+            {(tab === "pipeline" || tab === "leads") && <button className="btn-primary" type="button" onClick={openAddLead}>+ Add Lead</button>}
             {tab === "contacts" && <button className="btn-primary" type="button" onClick={openAddContact}>+ Add Contact</button>}
             {tab === "accounts" && <button className="btn-primary" type="button" onClick={openAddAccount}>+ Add Account</button>}
           </div>
@@ -197,7 +203,7 @@ export default function SalesPage() {
             onClick={() => { setTab(t.key); setAddOpen(false); setEditItem(null); }}>
             {t.label}
             <span className="sales-tab-count">
-              {t.key === "pipeline" ? (coldLeads.length + deals.length) : t.key === "contacts" ? contacts.length : accounts.length}
+              {t.key === "pipeline" ? (coldLeads.length + deals.length) : t.key === "leads" ? leads.length : t.key === "contacts" ? contacts.length : accounts.length}
             </span>
           </button>
         ))}
@@ -261,6 +267,36 @@ export default function SalesPage() {
             );
           })}
         </div>
+      )}
+
+      {/* ════ Leads Tab — Full List ════ */}
+      {tab === "leads" && (
+        <section className="panel">
+          <div className="panel-body">
+            <div className="table-wrap">
+              <table className="claims-table">
+                <thead><tr><th>S.No</th><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Source</th><th>Status</th><th>Assigned To</th><th>Created</th><th /><th /></tr></thead>
+                <tbody>
+                  {leads.length === 0 ? <tr><td colSpan={11} className="empty-state">No leads yet.</td></tr> : leads.map((l, i) => (
+                    <tr key={l.id}>
+                      <td>{i + 1}</td>
+                      <td><Link href={`/sales/leads/${l.id}`} className="hover-text"><strong>{l.name}</strong></Link></td>
+                      <td>{l.company}</td>
+                      <td>{l.email || "—"}</td>
+                      <td>{l.phone || "—"}</td>
+                      <td>{sourceLabel[l.source] ?? l.source}</td>
+                      <td><span className="phase-pill" style={{ background: `${leadStatusColor[l.status]}18`, color: leadStatusColor[l.status] }}>{leadStatusLabel[l.status]}</span></td>
+                      <td>{l.assignedToUser?.name || "—"}</td>
+                      <td>{fmt(l.createdAt)}</td>
+                      <td><button className="link-button hover-text" type="button" onClick={() => openEdit(l)}>Edit</button></td>
+                      <td><button className="row-remove" type="button" onClick={() => setDeleteItem(l)}>×</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Contacts Tab */}
@@ -399,7 +435,7 @@ export default function SalesPage() {
       {deleteItem && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal-card" style={{ maxWidth: 400 }}>
-            <h3>Delete {tab === "contacts" ? "Contact" : "Account"}</h3>
+            <h3>Delete {tab === "leads" ? "Lead" : tab === "contacts" ? "Contact" : "Account"}</h3>
             <p>Are you sure you want to delete <strong>{deleteItem.name || deleteItem.companyName}</strong>? This cannot be undone.</p>
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setDeleteItem(null)}>Cancel</button>

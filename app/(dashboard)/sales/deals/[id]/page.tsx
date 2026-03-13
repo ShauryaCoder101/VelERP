@@ -42,9 +42,16 @@ export default function DealDetailPage() {
   const [deal, setDeal] = useState<Deal | null>(null);
   const [team, setTeam] = useState<UserRef[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [reassignOpen, setReassignOpen] = useState(false);
   const [reassignTo, setReassignTo] = useState("");
-  const [saving, setSaving] = useState(false);
+
+  const [amountOpen, setAmountOpen] = useState(false);
+  const [amountVal, setAmountVal] = useState("");
+
+  const [pushOpen, setPushOpen] = useState(false);
+  const [pushDate, setPushDate] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -68,12 +75,18 @@ export default function DealDetailPage() {
     setSaving(false);
   };
 
+  const openPush = () => {
+    setPushDate(deal?.expectedCloseDate?.slice(0, 10) ?? "");
+    setPushOpen(true);
+  };
+
   const handlePushStage = async () => {
-    if (!deal) return;
+    if (!deal || !pushDate) return;
     const openStages = STAGES.filter(s => s !== "CLOSED_WON" && s !== "CLOSED_LOST");
     const idx = openStages.indexOf(deal.stage);
     if (idx < 0 || idx >= openStages.length - 1) return;
-    await updateDeal({ stage: openStages[idx + 1] });
+    await updateDeal({ stage: openStages[idx + 1], expectedCloseDate: pushDate });
+    setPushOpen(false);
   };
 
   const handleCloseLost = async () => { await updateDeal({ stage: "CLOSED_LOST" }); };
@@ -82,6 +95,11 @@ export default function DealDetailPage() {
   const handleReassign = async () => {
     await updateDeal({ assignedTo: reassignTo || null });
     setReassignOpen(false);
+  };
+
+  const handleSaveAmount = async () => {
+    await updateDeal({ amount: amountVal });
+    setAmountOpen(false);
   };
 
   const handleDelete = async () => {
@@ -111,7 +129,7 @@ export default function DealDetailPage() {
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {canPush && (
-              <button className="btn-primary" type="button" onClick={handlePushStage} disabled={saving}>
+              <button className="btn-primary" type="button" onClick={openPush} disabled={saving}>
                 Push to {stageLabel[openStages[currentIdx + 1]]} →
               </button>
             )}
@@ -164,7 +182,13 @@ export default function DealDetailPage() {
             <div className="detail-grid">
               <div className="detail-item"><span className="detail-label">Deal Name</span><span className="detail-value">{deal.dealName}</span></div>
               <div className="detail-item"><span className="detail-label">Account</span><span className="detail-value">{deal.account?.companyName || "—"}</span></div>
-              <div className="detail-item"><span className="detail-label">Amount</span><span className="detail-value" style={{ fontWeight: 700, fontSize: 18 }}>₹{deal.amount.toLocaleString("en-IN")}</span></div>
+              <div className="detail-item">
+                <span className="detail-label">Amount</span>
+                <span className="detail-value" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <strong style={{ fontSize: 18 }}>₹{deal.amount.toLocaleString("en-IN")}</strong>
+                  <button className="link-button hover-text" type="button" style={{ fontSize: 12 }} onClick={() => { setAmountVal(String(deal.amount)); setAmountOpen(true); }}>Edit</button>
+                </span>
+              </div>
               <div className="detail-item"><span className="detail-label">Expected Close</span><span className="detail-value">{deal.expectedCloseDate ? fmt(deal.expectedCloseDate) : "—"}</span></div>
               <div className="detail-item"><span className="detail-label">Assigned To</span><span className="detail-value">{deal.assignedToUser?.name || "Unassigned"}</span></div>
               <div className="detail-item"><span className="detail-label">Stage</span><span className="detail-value">{stageLabel[deal.stage]}</span></div>
@@ -182,6 +206,39 @@ export default function DealDetailPage() {
           </div>
         </section>
       </div>
+
+      {/* Push Stage Modal — requires expected close date */}
+      {pushOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: 420 }}>
+            <h3>Push to {stageLabel[openStages[currentIdx + 1]]}</h3>
+            <p style={{ color: "var(--gray-500)", fontSize: 14, margin: "0 0 12px" }}>
+              Set an expected close date to proceed.
+            </p>
+            <label className="auth-label">Expected Close Date *</label>
+            <input className="input" type="date" value={pushDate} onChange={e => setPushDate(e.target.value)} />
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => setPushOpen(false)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={handlePushStage} disabled={saving || !pushDate}>Push →</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Amount Modal */}
+      {amountOpen && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: 380 }}>
+            <h3>Edit Deal Amount</h3>
+            <label className="auth-label">Amount (₹)</label>
+            <input className="input" type="number" value={amountVal} onChange={e => setAmountVal(e.target.value)} placeholder="0" />
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => setAmountOpen(false)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={handleSaveAmount} disabled={saving}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reassign Modal */}
       {reassignOpen && (
