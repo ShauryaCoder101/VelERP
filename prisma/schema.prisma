@@ -61,6 +61,8 @@ model User {
   eventTeamMembers EventTeamMember[] @relation("EventTeamMembers")
   bdCalls          BdCall[]          @relation("BdCallAddedBy")
   notifications    Notification[]    @relation("NotificationActor")
+  assignedLeads    Lead[]            @relation("LeadAssignedTo")
+  assignedDeals    Deal[]            @relation("DealAssignedTo")
 }
 
 model Session {
@@ -272,6 +274,97 @@ model PasswordReset {
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+enum LeadSource {
+  WEBSITE
+  REFERRAL
+  SOCIAL_MEDIA
+  COLD_CALL
+  EVENT
+  OTHER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  UNQUALIFIED
+}
+
+enum DealStage {
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+model Lead {
+  id          String     @id @default(uuid())
+  name        String
+  company     String
+  email       String?
+  phone       String?
+  source      LeadSource @default(OTHER)
+  status      LeadStatus @default(NEW)
+  notes       String?
+  assignedTo  String?
+  createdBy   String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  assignedToUser User? @relation("LeadAssignedTo", fields: [assignedTo], references: [id])
+}
+
+model SalesContact {
+  id          String   @id @default(uuid())
+  name        String
+  email       String?
+  phone       String?
+  company     String?
+  designation String?
+  accountId   String?
+  notes       String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account Account? @relation(fields: [accountId], references: [id])
+}
+
+model Account {
+  id          String   @id @default(uuid())
+  companyName String
+  industry    String?
+  phone       String?
+  email       String?
+  website     String?
+  address     String?
+  notes       String?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  contacts SalesContact[]
+  deals    Deal[]
+}
+
+model Deal {
+  id                String    @id @default(uuid())
+  dealName          String
+  accountId         String?
+  stage             DealStage @default(QUALIFICATION)
+  amount            Float     @default(0)
+  expectedCloseDate DateTime?
+  notes             String?
+  assignedTo        String?
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  account        Account? @relation(fields: [accountId], references: [id])
+  assignedToUser User?    @relation("DealAssignedTo", fields: [assignedTo], references: [id])
 }
 
 model Notification {

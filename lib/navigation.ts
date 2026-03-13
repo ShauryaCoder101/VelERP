@@ -11,6 +11,7 @@ export const NAV_LINKS: NavLink[] = [
   { label: "Vendor Management", href: "/vendor-management", minLevel: 3, icon: "vendors" },
   { label: "Artist Onboarding", href: "/artist-onboarding", minLevel: 3, icon: "artists" },
   { label: "Business Development", href: "/business-development", minLevel: 3, icon: "bd" },
+  { label: "Sales", href: "/sales", minLevel: 3, icon: "sales" },
   { label: "Expense Claims", href: "/expense-claims", minLevel: 3, icon: "expenses" },
   { label: "Event Uploads", href: "/event-uploads", minLevel: 3, icon: "uploads" },
   { label: "Team", href: "/team", minLevel: 2, icon: "team" },
