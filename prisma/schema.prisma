@@ -294,8 +294,11 @@ enum LeadStatus {
 
 enum DealStage {
   QUALIFICATION
-  PROPOSAL
-  NEGOTIATION
+  NEEDS_ANALYSIS
+  VALUE_PROPOSITION
+  IDENTIFY_DECISION_MAKERS
+  PROPOSAL_PRICE_QUOTE
+  NEGOTIATION_REVIEW
   CLOSED_WON
   CLOSED_LOST
 }
@@ -306,11 +309,13 @@ model Lead {
   company     String
   email       String?
   phone       String?
+  address     String?
   source      LeadSource @default(OTHER)
   status      LeadStatus @default(NEW)
   notes       String?
   assignedTo  String?
   createdBy   String
+  convertedDealId String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 

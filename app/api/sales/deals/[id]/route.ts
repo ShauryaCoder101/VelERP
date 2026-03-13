@@ -3,6 +3,19 @@ import { prisma } from "../../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../../lib/rbac-server";
 import { createNotification } from "../../../../../lib/notifications";
 
+export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const deal = await prisma.deal.findUnique({
+    where: { id },
+    include: {
+      account: { select: { id: true, companyName: true } },
+      assignedToUser: { select: { id: true, name: true } }
+    }
+  });
+  if (!deal) return new Response("Not found", { status: 404 });
+  return Response.json(deal);
+}
+
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { role, id: userId, name: userName } = await getRequestUser(request);
   if (!requireMinLevel(role, 3)) return new Response("Forbidden", { status: 403 });

@@ -1269,6 +1269,210 @@ select[multiple].input {
   font-size: 18px;
 }
 
+/* ── Pipeline Stage Pills ── */
+
+.pipeline-stages {
+  display: flex;
+  gap: 6px;
+  padding: 0 0 16px;
+  overflow-x: auto;
+  flex-wrap: wrap;
+}
+
+.pipeline-stage-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 20px;
+  background: var(--white);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.pipeline-stage-pill:hover {
+  border-color: var(--pill-color);
+  color: var(--pill-color);
+}
+
+.pipeline-stage-active {
+  background: var(--pill-color);
+  border-color: var(--pill-color);
+  color: #fff;
+}
+
+.pipeline-stage-active:hover {
+  background: var(--pill-color);
+  color: #fff;
+}
+
+.pipeline-stage-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.08);
+}
+
+.pipeline-stage-active .pipeline-stage-count {
+  background: rgba(255,255,255,0.25);
+}
+
+.stage-dot-inline {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.clickable-row td {
+  cursor: pointer;
+}
+
+.clickable-row:hover td {
+  background: var(--gray-50, #f9fafb);
+}
+
+/* ── Sales Detail Pages ── */
+
+.sales-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .sales-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 480px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--gray-500);
+}
+
+.detail-value {
+  font-size: 15px;
+  color: var(--black);
+}
+
+/* ── Stage Progress Bar ── */
+
+.stage-progress {
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+
+.stage-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: min-content;
+}
+
+.stage-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  position: relative;
+  white-space: nowrap;
+}
+
+.stage-step:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.stage-step:last-child {
+  border-radius: 0 10px 10px 0;
+}
+
+.stage-step + .stage-step {
+  border-left: none;
+}
+
+.stage-step .stage-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gray-300);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.stage-step .stage-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-500);
+  transition: color 0.15s;
+}
+
+.stage-step-done {
+  background: var(--gray-50, #f0f4ff);
+}
+
+.stage-step-done .stage-dot {
+  background: #3b82f6;
+}
+
+.stage-step-done .stage-label {
+  color: #3b82f6;
+}
+
+.stage-step-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+}
+
+.stage-step-active .stage-dot {
+  background: #fff;
+}
+
+.stage-step-active .stage-label {
+  color: #fff;
+  font-weight: 700;
+}
+
+.stage-step-won {
+  background: #16b65f;
+  border-color: #16b65f;
+}
+
+.stage-step-lost {
+  background: #6b7280;
+  border-color: #6b7280;
+}
+
 /* ── BD Leaderboard ── */
 
 .bd-leaderboard {
