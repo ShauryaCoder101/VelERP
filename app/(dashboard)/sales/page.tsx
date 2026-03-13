@@ -51,8 +51,8 @@ const LEAD_SOURCES = ["WEBSITE", "REFERRAL", "SOCIAL_MEDIA", "COLD_CALL", "EVENT
 
 const stageLabel: Record<string, string> = {
   COLD_LEAD: "Cold Lead", QUALIFICATION: "Qualification", NEEDS_ANALYSIS: "Needs Analysis",
-  VALUE_PROPOSITION: "Value Proposition", IDENTIFY_DECISION_MAKERS: "Identify Decision Makers",
-  PROPOSAL_PRICE_QUOTE: "Proposal / Price Quote", NEGOTIATION_REVIEW: "Negotiation / Review",
+  VALUE_PROPOSITION: "Value Proposition", IDENTIFY_DECISION_MAKERS: "Decision Makers",
+  PROPOSAL_PRICE_QUOTE: "Proposal/Quote", NEGOTIATION_REVIEW: "Negotiation",
   CLOSED_WON: "Closed Won", CLOSED_LOST: "Closed Lost"
 };
 const stageColor: Record<string, string> = {
@@ -64,7 +64,7 @@ const stageColor: Record<string, string> = {
 const sourceLabel: Record<string, string> = { WEBSITE: "Website", REFERRAL: "Referral", SOCIAL_MEDIA: "Social Media", COLD_CALL: "Cold Call", EVENT: "Event", OTHER: "Other" };
 
 const fmt = (iso: string) => {
-  try { return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); }
+  try { return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }); }
   catch { return iso; }
 };
 
@@ -75,9 +75,9 @@ export default function SalesPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [team, setTeam] = useState<UserRef[]>([]);
-  const [pipelineStage, setPipelineStage] = useState("COLD_LEAD");
 
   const [addOpen, setAddOpen] = useState(false);
+  const [addTarget, setAddTarget] = useState<"lead" | "contact" | "account">("lead");
   const [editItem, setEditItem] = useState<any>(null);
   const [deleteItem, setDeleteItem] = useState<any>(null);
 
@@ -100,29 +100,36 @@ export default function SalesPage() {
     setAccountForm({ companyName: "", industry: "", phone: "", email: "", website: "", address: "", notes: "" });
   };
 
-  const openAdd = () => { resetForms(); setEditItem(null); setAddOpen(true); };
+  const openAddLead = () => { resetForms(); setEditItem(null); setAddTarget("lead"); setAddOpen(true); };
+  const openAddContact = () => { resetForms(); setEditItem(null); setAddTarget("contact"); setAddOpen(true); };
+  const openAddAccount = () => { resetForms(); setEditItem(null); setAddTarget("account"); setAddOpen(true); };
 
   const openEdit = (item: any) => {
     setAddOpen(false);
-    if (tab === "contacts") setContactForm({ name: item.name, email: item.email ?? "", phone: item.phone ?? "", company: item.company ?? "", designation: item.designation ?? "", accountId: item.accountId ?? "", notes: item.notes ?? "" });
-    if (tab === "accounts") setAccountForm({ companyName: item.companyName, industry: item.industry ?? "", phone: item.phone ?? "", email: item.email ?? "", website: item.website ?? "", address: item.address ?? "", notes: item.notes ?? "" });
+    if (tab === "contacts") { setContactForm({ name: item.name, email: item.email ?? "", phone: item.phone ?? "", company: item.company ?? "", designation: item.designation ?? "", accountId: item.accountId ?? "", notes: item.notes ?? "" }); setAddTarget("contact"); }
+    if (tab === "accounts") { setAccountForm({ companyName: item.companyName, industry: item.industry ?? "", phone: item.phone ?? "", email: item.email ?? "", website: item.website ?? "", address: item.address ?? "", notes: item.notes ?? "" }); setAddTarget("account"); }
     setEditItem(item);
   };
 
-  /* ── Pipeline item counts ── */
+  /* ── Pipeline data ── */
   const coldLeads = leads.filter(l => !l.convertedDealId && l.status !== "UNQUALIFIED");
-  const stageCounts: Record<string, number> = { COLD_LEAD: coldLeads.length };
-  PIPELINE_STAGES.filter(s => s !== "COLD_LEAD").forEach(s => {
-    stageCounts[s] = deals.filter(d => d.stage === s).length;
-  });
+  const totalPipeline = deals.filter(d => !["CLOSED_WON", "CLOSED_LOST"].includes(d.stage)).reduce((s, d) => s + d.amount, 0) || 1;
 
-  const stageAmount: Record<string, number> = {};
-  PIPELINE_STAGES.filter(s => s !== "COLD_LEAD").forEach(s => {
-    stageAmount[s] = deals.filter(d => d.stage === s).reduce((sum, d) => sum + d.amount, 0);
-  });
+  const getStageItems = (stage: string) => {
+    if (stage === "COLD_LEAD") return coldLeads;
+    return deals.filter(d => d.stage === stage);
+  };
 
-  const pipeline = deals.filter(d => !["CLOSED_WON", "CLOSED_LOST"].includes(d.stage)).reduce((s, d) => s + d.amount, 0);
-  const wonTotal = deals.filter(d => d.stage === "CLOSED_WON").reduce((s, d) => s + d.amount, 0);
+  const getStageAmount = (stage: string) => {
+    if (stage === "COLD_LEAD") return 0;
+    return deals.filter(d => d.stage === stage).reduce((s, d) => s + d.amount, 0);
+  };
+
+  const getStagePercent = (stage: string) => {
+    if (stage === "COLD_LEAD" || stage === "CLOSED_WON" || stage === "CLOSED_LOST") return "";
+    const amt = getStageAmount(stage);
+    return `${Math.round((amt / totalPipeline) * 100)}%`;
+  };
 
   /* ── CRUD ── */
   const handleSave = async () => {
@@ -130,11 +137,9 @@ export default function SalesPage() {
     let url = "";
     let payload: unknown = {};
 
-    if (tab === "pipeline" && pipelineStage === "COLD_LEAD") {
-      url = "/api/sales/leads"; payload = { ...leadForm, status: "NEW" };
-    }
-    if (tab === "contacts") { url = "/api/sales/contacts"; payload = contactForm; }
-    if (tab === "accounts") { url = "/api/sales/accounts"; payload = accountForm; }
+    if (addTarget === "lead") { url = "/api/sales/leads"; payload = { ...leadForm, status: "NEW" }; }
+    if (addTarget === "contact") { url = "/api/sales/contacts"; payload = contactForm; }
+    if (addTarget === "account") { url = "/api/sales/accounts"; payload = accountForm; }
 
     if (isEdit) url += `/${editItem.id}`;
 
@@ -146,9 +151,9 @@ export default function SalesPage() {
     if (!res.ok) return;
     const saved = await res.json();
 
-    if (tab === "pipeline") setLeads(prev => [saved, ...prev]);
-    if (tab === "contacts") setContacts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
-    if (tab === "accounts") setAccounts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
+    if (addTarget === "lead") setLeads(prev => [saved, ...prev]);
+    if (addTarget === "contact") setContacts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
+    if (addTarget === "account") setAccounts(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
 
     setAddOpen(false);
     setEditItem(null);
@@ -169,8 +174,6 @@ export default function SalesPage() {
     setDeleteItem(null);
   };
 
-  const addLabel = tab === "pipeline" && pipelineStage === "COLD_LEAD" ? "Add Lead" : tab === "contacts" ? "Add Contact" : "Add Account";
-
   return (
     <>
       <section className="page-header">
@@ -179,9 +182,11 @@ export default function SalesPage() {
             <h1>Sales</h1>
             <p>Manage your sales pipeline, contacts, and accounts.</p>
           </div>
-          {(tab !== "pipeline" || pipelineStage === "COLD_LEAD") && (
-            <button className="btn-primary" type="button" onClick={openAdd}>+ {addLabel}</button>
-          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            {tab === "pipeline" && <button className="btn-primary" type="button" onClick={openAddLead}>+ Add Lead</button>}
+            {tab === "contacts" && <button className="btn-primary" type="button" onClick={openAddContact}>+ Add Contact</button>}
+            {tab === "accounts" && <button className="btn-primary" type="button" onClick={openAddAccount}>+ Add Account</button>}
+          </div>
         </div>
       </section>
 
@@ -198,99 +203,64 @@ export default function SalesPage() {
         ))}
       </div>
 
-      {/* Pipeline Tab */}
+      {/* ════ Pipeline Tab — Kanban Board ════ */}
       {tab === "pipeline" && (
-        <>
-          {/* Pipeline summary */}
-          <div className="sales-pipeline">
-            <div className="sales-pipeline-item">
-              <span className="muted">Open Pipeline</span>
-              <strong>₹{pipeline.toLocaleString("en-IN")}</strong>
-            </div>
-            <div className="sales-pipeline-item">
-              <span className="muted">Won</span>
-              <strong style={{ color: "#16b65f" }}>₹{wonTotal.toLocaleString("en-IN")}</strong>
-            </div>
-            <div className="sales-pipeline-item">
-              <span className="muted">Cold Leads</span>
-              <strong>{coldLeads.length}</strong>
-            </div>
-            <div className="sales-pipeline-item">
-              <span className="muted">Active Deals</span>
-              <strong>{deals.filter(d => !["CLOSED_WON", "CLOSED_LOST"].includes(d.stage)).length}</strong>
-            </div>
-          </div>
+        <div className="kanban-board">
+          {PIPELINE_STAGES.map(stage => {
+            const items = getStageItems(stage);
+            const amount = getStageAmount(stage);
+            const pct = getStagePercent(stage);
+            const color = stageColor[stage];
 
-          {/* Stage pills row */}
-          <div className="pipeline-stages">
-            {PIPELINE_STAGES.map(s => (
-              <button key={s} type="button"
-                className={`pipeline-stage-pill ${pipelineStage === s ? "pipeline-stage-active" : ""}`}
-                style={{ "--pill-color": stageColor[s] } as React.CSSProperties}
-                onClick={() => setPipelineStage(s)}>
-                {stageLabel[s]}
-                <span className="pipeline-stage-count">{stageCounts[s] ?? 0}</span>
-              </button>
-            ))}
-          </div>
+            return (
+              <div key={stage} className="kanban-column">
+                {/* Column header */}
+                <div className="kanban-col-header" style={{ borderTopColor: color }}>
+                  <div className="kanban-col-title">
+                    <span>{stageLabel[stage]}</span>
+                    <span className="kanban-col-badge" style={{ background: `${color}20`, color }}>{items.length}</span>
+                    {pct && <span className="kanban-col-pct">· {pct}</span>}
+                  </div>
+                  {stage !== "COLD_LEAD" && amount > 0 && (
+                    <div className="kanban-col-amount">₹{amount.toLocaleString("en-IN")}</div>
+                  )}
+                </div>
 
-          {/* Stage content */}
-          <section className="panel">
-            <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="stage-dot-inline" style={{ background: stageColor[pipelineStage] }} />
-                {stageLabel[pipelineStage]}
-                {pipelineStage !== "COLD_LEAD" && stageAmount[pipelineStage] > 0 && (
-                  <span style={{ fontWeight: 400, fontSize: 14, color: "var(--gray-500)" }}>
-                    — ₹{stageAmount[pipelineStage].toLocaleString("en-IN")}
-                  </span>
-                )}
-              </h3>
-            </div>
-            <div className="panel-body">
-              <div className="table-wrap">
-                {pipelineStage === "COLD_LEAD" ? (
-                  <table className="claims-table">
-                    <thead><tr><th>S.No</th><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Source</th><th>Assigned To</th><th>Created</th></tr></thead>
-                    <tbody>
-                      {coldLeads.length === 0 ? <tr><td colSpan={8} className="empty-state">No cold leads.</td></tr> :
-                        coldLeads.map((l, i) => (
-                          <tr key={l.id} className="clickable-row">
-                            <td>{i + 1}</td>
-                            <td><Link href={`/sales/leads/${l.id}`} className="hover-text"><strong>{l.name}</strong></Link></td>
-                            <td>{l.company}</td>
-                            <td>{l.email || "—"}</td>
-                            <td>{l.phone || "—"}</td>
-                            <td>{sourceLabel[l.source] ?? l.source}</td>
-                            <td>{l.assignedToUser?.name || "—"}</td>
-                            <td>{fmt(l.createdAt)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <table className="claims-table">
-                    <thead><tr><th>S.No</th><th>Deal Name</th><th>Account</th><th>Amount</th><th>Expected Close</th><th>Assigned To</th><th>Created</th></tr></thead>
-                    <tbody>
-                      {deals.filter(d => d.stage === pipelineStage).length === 0 ? <tr><td colSpan={7} className="empty-state">No deals in this stage.</td></tr> :
-                        deals.filter(d => d.stage === pipelineStage).map((d, i) => (
-                          <tr key={d.id} className="clickable-row">
-                            <td>{i + 1}</td>
-                            <td><Link href={`/sales/deals/${d.id}`} className="hover-text"><strong>{d.dealName}</strong></Link></td>
-                            <td>{d.account?.companyName || "—"}</td>
-                            <td style={{ fontWeight: 600 }}>₹{d.amount.toLocaleString("en-IN")}</td>
-                            <td>{d.expectedCloseDate ? fmt(d.expectedCloseDate) : "—"}</td>
-                            <td>{d.assignedToUser?.name || "—"}</td>
-                            <td>{fmt(d.createdAt)}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
+                {/* Cards */}
+                <div className="kanban-cards">
+                  {items.length === 0 && <div className="kanban-empty">No items</div>}
+
+                  {stage === "COLD_LEAD"
+                    ? (items as Lead[]).map(lead => (
+                      <Link key={lead.id} href={`/sales/leads/${lead.id}`} className="kanban-card">
+                        <div className="kanban-card-name">{lead.name}</div>
+                        <div className="kanban-card-stage" style={{ color }}>{stageLabel[stage]}</div>
+                        <div className="kanban-card-row">{lead.company}</div>
+                        {lead.assignedToUser && <div className="kanban-card-row">{lead.assignedToUser.name}</div>}
+                        {lead.email && <div className="kanban-card-row">{lead.email}</div>}
+                        <div className="kanban-card-footer">
+                          <span className="kanban-card-date">{fmt(lead.createdAt)}</span>
+                        </div>
+                      </Link>
+                    ))
+                    : (items as Deal[]).map(deal => (
+                      <Link key={deal.id} href={`/sales/deals/${deal.id}`} className="kanban-card">
+                        <div className="kanban-card-name">{deal.dealName}</div>
+                        <div className="kanban-card-stage" style={{ color }}>{stageLabel[stage]}</div>
+                        {deal.account && <div className="kanban-card-row">{deal.account.companyName}</div>}
+                        {deal.assignedToUser && <div className="kanban-card-row">{deal.assignedToUser.name}</div>}
+                        <div className="kanban-card-amount">₹{deal.amount.toLocaleString("en-IN")}</div>
+                        <div className="kanban-card-footer">
+                          <span className="kanban-card-date">{fmt(deal.createdAt)}</span>
+                        </div>
+                      </Link>
+                    ))
+                  }
+                </div>
               </div>
-            </div>
-          </section>
-        </>
+            );
+          })}
+        </div>
       )}
 
       {/* Contacts Tab */}
@@ -354,9 +324,9 @@ export default function SalesPage() {
       {(addOpen || editItem) && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal-card" style={{ maxWidth: 500, maxHeight: "80vh", overflowY: "auto" }}>
-            <h3>{editItem ? "Edit" : "Add"} {tab === "pipeline" ? "Lead" : tab === "contacts" ? "Contact" : "Account"}</h3>
+            <h3>{editItem ? "Edit" : "Add"} {addTarget === "lead" ? "Lead" : addTarget === "contact" ? "Contact" : "Account"}</h3>
 
-            {tab === "pipeline" && pipelineStage === "COLD_LEAD" && (<>
+            {addTarget === "lead" && (<>
               <label className="auth-label">Name *</label>
               <input className="input" value={leadForm.name} onChange={e => setLeadForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
               <label className="auth-label">Company *</label>
@@ -378,7 +348,7 @@ export default function SalesPage() {
               <textarea className="input textarea" rows={2} value={leadForm.notes} onChange={e => setLeadForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" />
             </>)}
 
-            {tab === "contacts" && (<>
+            {addTarget === "contact" && (<>
               <label className="auth-label">Name *</label>
               <input className="input" value={contactForm.name} onChange={e => setContactForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
               <label className="auth-label">Email</label>
@@ -398,7 +368,7 @@ export default function SalesPage() {
               <textarea className="input textarea" rows={2} value={contactForm.notes} onChange={e => setContactForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" />
             </>)}
 
-            {tab === "accounts" && (<>
+            {addTarget === "account" && (<>
               <label className="auth-label">Company Name *</label>
               <input className="input" value={accountForm.companyName} onChange={e => setAccountForm(p => ({ ...p, companyName: e.target.value }))} placeholder="Company name" />
               <label className="auth-label">Industry</label>
@@ -418,7 +388,7 @@ export default function SalesPage() {
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => { setAddOpen(false); setEditItem(null); }}>Cancel</button>
               <button className="btn-primary" type="button" onClick={handleSave}>
-                {editItem ? "Save Changes" : addLabel}
+                {editItem ? "Save Changes" : `Add ${addTarget === "lead" ? "Lead" : addTarget === "contact" ? "Contact" : "Account"}`}
               </button>
             </div>
           </div>
