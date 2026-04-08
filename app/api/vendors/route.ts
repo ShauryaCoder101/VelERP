@@ -25,6 +25,8 @@ export async function POST(request: Request) {
       phone: body.phone,
       work: body.work,
       gstin: body.gstin ?? null,
+      panCard: body.panCard ?? null,
+      pocName: body.pocName ?? null,
       status: body.status,
       currentEvent: body.currentEvent ?? null,
       onboardedBy: userId

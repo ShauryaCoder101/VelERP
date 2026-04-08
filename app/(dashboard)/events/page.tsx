@@ -40,9 +40,35 @@ const fmt = (iso: string) => {
   catch { return iso; }
 };
 
+const SkeletonEventCards = () => (
+  <section style={{ marginTop: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <div className="skeleton" style={{ width: 12, height: 12, borderRadius: "50%" }} />
+      <div className="skeleton" style={{ width: 120, height: 20 }} />
+    </div>
+    <div className="event-cards-grid">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="skeleton-event-card">
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div className="skeleton" style={{ width: 80, height: 22, borderRadius: 999 }} />
+            <div className="skeleton" style={{ width: 100, height: 14 }} />
+          </div>
+          <div className="skeleton" style={{ width: "75%", height: 20 }} />
+          <div className="skeleton" style={{ width: "50%", height: 14 }} />
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <div className="skeleton" style={{ width: 80, height: 13 }} />
+            <div className="skeleton" style={{ width: 60, height: 13 }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+);
+
 export default function EventsPage() {
   const router = useRouter();
   const [events, setEvents] = useState<EventCard[]>([]);
+  const [loading, setLoading] = useState(true);
   const [vendors, setVendors] = useState<VendorSummary[]>([]);
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
   const [team, setTeam] = useState<TeamSummary[]>([]);
@@ -55,6 +81,7 @@ export default function EventsPage() {
   });
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
       fetch("/api/events").then((r) => r.json()),
       fetch("/api/vendors").then((r) => r.json()),
@@ -89,7 +116,8 @@ export default function EventsPage() {
           teamNames: tIds.map((tid: string) => teamMap.get(tid) ?? "")
         };
       }));
-    });
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, []);
 
   const grouped = useMemo(() => {
@@ -160,56 +188,65 @@ export default function EventsPage() {
         </div>
       </section>
 
-      {PHASE_ORDER.map((phase) => {
-        const cards = grouped[phase];
-        if (!cards || cards.length === 0) return null;
-        const color = PHASE_COLORS[phase] ?? "#e1162a";
-        return (
-          <section key={phase} className="phase-section">
-            <div className="phase-section-header">
-              <span className="phase-section-dot" style={{ background: color }} />
-              <h2>{PHASE_LABELS[phase] ?? phase}</h2>
-              <span className="muted">({cards.length})</span>
-            </div>
-            <div className="event-cards-grid">
-              {cards.map((ev) => (
-                <button
-                  key={ev.id}
-                  type="button"
-                  className="event-card"
-                  onClick={() => router.push(`/events/${ev.id}`)}
-                >
-                  <div className="event-card-top">
-                    <span className="event-card-phase" style={{ background: `${color}18`, color }}>{PHASE_LABELS[ev.phase.toUpperCase()] ?? ev.phase}</span>
-                    <span className="event-card-dates">{fmt(ev.fromDate)} – {fmt(ev.toDate)}</span>
-                  </div>
-                  <h3 className="event-card-title">{ev.eventName}</h3>
-                  <p className="event-card-company">{ev.companyName}</p>
-                  <div className="event-card-meta">
-                    <span>POC: {ev.pocName}</span>
-                    {ev.vendorNames.length > 0 && <span>{ev.vendorNames.length} vendor{ev.vendorNames.length > 1 ? "s" : ""}</span>}
-                    {ev.artistNames.length > 0 && <span>{ev.artistNames.length} artist{ev.artistNames.length > 1 ? "s" : ""}</span>}
-                    {ev.teamNames.length > 0 && <span>{ev.teamNames.length} team</span>}
-                  </div>
-                  {ev.teamNames.length > 0 && (
-                    <div className="event-card-avatars">
-                      {ev.teamNames.slice(0, 4).map((name, i) => (
-                        <span key={i} className="avatar" style={{ width: 28, height: 28, fontSize: 11, marginLeft: i > 0 ? -8 : 0 }}>{name.charAt(0)}</span>
-                      ))}
-                      {ev.teamNames.length > 4 && <span className="muted" style={{ marginLeft: 4 }}>+{ev.teamNames.length - 4}</span>}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          </section>
-        );
-      })}
+      {loading ? (
+        <>
+          <SkeletonEventCards />
+          <SkeletonEventCards />
+        </>
+      ) : (
+        <>
+          {PHASE_ORDER.map((phase) => {
+            const cards = grouped[phase];
+            if (!cards || cards.length === 0) return null;
+            const color = PHASE_COLORS[phase] ?? "#e1162a";
+            return (
+              <section key={phase} className="phase-section">
+                <div className="phase-section-header">
+                  <span className="phase-section-dot" style={{ background: color }} />
+                  <h2>{PHASE_LABELS[phase] ?? phase}</h2>
+                  <span className="muted">({cards.length})</span>
+                </div>
+                <div className="event-cards-grid">
+                  {cards.map((ev) => (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      className="event-card"
+                      onClick={() => router.push(`/events/${ev.id}`)}
+                    >
+                      <div className="event-card-top">
+                        <span className="event-card-phase" style={{ background: `${color}18`, color }}>{PHASE_LABELS[ev.phase.toUpperCase()] ?? ev.phase}</span>
+                        <span className="event-card-dates">{fmt(ev.fromDate)} – {fmt(ev.toDate)}</span>
+                      </div>
+                      <h3 className="event-card-title">{ev.eventName}</h3>
+                      <p className="event-card-company">{ev.companyName}</p>
+                      <div className="event-card-meta">
+                        <span>POC: {ev.pocName}</span>
+                        {ev.vendorNames.length > 0 && <span>{ev.vendorNames.length} vendor{ev.vendorNames.length > 1 ? "s" : ""}</span>}
+                        {ev.artistNames.length > 0 && <span>{ev.artistNames.length} artist{ev.artistNames.length > 1 ? "s" : ""}</span>}
+                        {ev.teamNames.length > 0 && <span>{ev.teamNames.length} team</span>}
+                      </div>
+                      {ev.teamNames.length > 0 && (
+                        <div className="event-card-avatars">
+                          {ev.teamNames.slice(0, 4).map((name, i) => (
+                            <span key={i} className="avatar" style={{ width: 28, height: 28, fontSize: 11, marginLeft: i > 0 ? -8 : 0 }}>{name.charAt(0)}</span>
+                          ))}
+                          {ev.teamNames.length > 4 && <span className="muted" style={{ marginLeft: 4 }}>+{ev.teamNames.length - 4}</span>}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
 
-      {events.length === 0 && (
-        <section className="panel">
-          <div className="empty-state">No events yet. Click &quot;+ Add Event&quot; to create one.</div>
-        </section>
+          {events.length === 0 && (
+            <section className="panel">
+              <div className="empty-state">No events yet. Click &quot;+ Add Event&quot; to create one.</div>
+            </section>
+          )}
+        </>
       )}
 
       {addOpen && (

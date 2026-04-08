@@ -15,6 +15,10 @@ const eventInclude = {
       items: true
     },
     orderBy: { createdAt: "desc" as const }
+  },
+  finances: {
+    include: { vendor: { select: { id: true, companyName: true, work: true } } },
+    orderBy: { createdAt: "asc" as const }
   }
 };
 

@@ -95,6 +95,7 @@ model Event {
   teamMembers EventTeamMember[]
   uploads     Upload[]
   claims      ExpenseClaim[]
+  finances    EventVendorFinance[]
 }
 
 model Vendor {
@@ -105,6 +106,8 @@ model Vendor {
   work         String
   location     String?
   gstin        String?
+  panCard      String?
+  pocName      String?
   status       Status   @default(INACTIVE)
   currentEvent String?
   onboardedAt  DateTime @default(now())
@@ -112,9 +115,10 @@ model Vendor {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  onboardedByUser User        @relation("VendorOnboardedBy", fields: [onboardedBy], references: [id])
+  onboardedByUser User                @relation("VendorOnboardedBy", fields: [onboardedBy], references: [id])
   ratings         Rating[]
   events          EventVendor[]
+  finances        EventVendorFinance[]
 }
 
 model Artist {
@@ -160,6 +164,24 @@ model EventVendor {
   vendor Vendor @relation(fields: [vendorId], references: [id])
 
   @@id([eventId, vendorId])
+}
+
+model EventVendorFinance {
+  id            String   @id @default(uuid())
+  eventId       String
+  vendorId      String
+  quotedAmount  Float    @default(0)
+  advancePaid   Float    @default(0)
+  totalPaid     Float    @default(0)
+  closed        Boolean  @default(false)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  event   Event  @relation(fields: [eventId], references: [id])
+  vendor  Vendor @relation(fields: [vendorId], references: [id])
+
+  @@unique([eventId, vendorId])
 }
 
 model EventArtist {

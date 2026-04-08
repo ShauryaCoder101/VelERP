@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { currentUser } from "../../../lib/auth";
 
 type RatingEntry = {
   id?: string;
@@ -19,14 +18,19 @@ type Vendor = {
   phone: string;
   work: string;
   gstin: string;
+  panCard: string;
+  pocName: string;
   status: "Active" | "Inactive";
   currentEvent: string;
   onboardedAt: string;
   onboardedBy: string;
+  onboardedById: string;
   ratings: RatingEntry[];
 };
 
-const createVendor = (): Vendor => ({
+type SessionUser = { id: string; name: string; role: string };
+
+const createVendor = (userName: string): Vendor => ({
   id: "",
   companyName: "",
   email: "",
@@ -34,15 +38,20 @@ const createVendor = (): Vendor => ({
   phone: "",
   work: "",
   gstin: "",
+  panCard: "",
+  pocName: "",
   status: "Inactive",
   currentEvent: "",
   onboardedAt: new Date().toLocaleString(),
-  onboardedBy: currentUser.name,
+  onboardedBy: userName,
+  onboardedById: "",
   ratings: []
 });
 
 export default function VendorManagementPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [ratingVendorId, setRatingVendorId] = useState<string | null>(null);
   const [historyVendorId, setHistoryVendorId] = useState<string | null>(null);
   const [ratingValue, setRatingValue] = useState("5");
@@ -50,12 +59,25 @@ export default function VendorManagementPage() {
   const [deleteVendorId, setDeleteVendorId] = useState<string | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [newVendor, setNewVendor] = useState<Vendor>(createVendor());
+  const [newVendor, setNewVendor] = useState<Vendor>(createVendor(""));
+  const [editVendorId, setEditVendorId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Vendor | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
+  // Fetch session user
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => u && setSessionUser({ id: u.id, name: u.name, role: u.role }))
+      .catch(() => {});
+  }, []);
+
+  // Fetch vendors
   useEffect(() => {
     const loadVendors = async () => {
+      setLoading(true);
       const response = await fetch("/api/vendors");
-      if (!response.ok) return;
+      if (!response.ok) { setLoading(false); return; }
       const data = await response.json();
       const mapped = data.map((vendor: any) => ({
         id: vendor.id,
@@ -65,10 +87,13 @@ export default function VendorManagementPage() {
         phone: vendor.phone,
         work: vendor.work,
         gstin: vendor.gstin ?? "",
+        panCard: vendor.panCard ?? "",
+        pocName: vendor.pocName ?? "",
         status: vendor.status === "ACTIVE" ? "Active" : "Inactive",
         currentEvent: vendor.currentEvent ?? "",
         onboardedAt: new Date(vendor.onboardedAt).toLocaleString(),
         onboardedBy: vendor.onboardedByUser?.name ?? vendor.onboardedBy,
+        onboardedById: vendor.onboardedByUser?.id ?? vendor.onboardedBy,
         ratings: (vendor.ratings ?? []).map((rating: any) => ({
           id: rating.id,
           rating: rating.rating,
@@ -78,17 +103,14 @@ export default function VendorManagementPage() {
         }))
       }));
       setVendors(mapped);
+      setLoading(false);
     };
     loadVendors();
   }, []);
 
-  const handleVendorChange = (id: string, field: keyof Vendor, value: string) => {
-    setVendors((prev) => prev.map((vendor) => (vendor.id === id ? { ...vendor, [field]: value } : vendor)));
-  };
-
   const handleAddVendor = () => {
     setIsAddOpen(true);
-    setNewVendor(createVendor());
+    setNewVendor(createVendor(sessionUser?.name ?? ""));
   };
 
   const handleRemoveVendor = async (id: string) => {
@@ -118,6 +140,12 @@ export default function VendorManagementPage() {
     return (total / ratings.length).toFixed(1);
   };
 
+  const canEditVendor = (vendor: Vendor) => {
+    if (!sessionUser) return false;
+    if (sessionUser.role === "Managing Director") return true;
+    return vendor.onboardedById === sessionUser.id;
+  };
+
   const handleSubmitRating = async () => {
     if (!ratingTarget) return;
     const response = await fetch(`/api/vendors/${ratingTarget.id}/ratings`, {
@@ -137,7 +165,7 @@ export default function VendorManagementPage() {
                   id: entry.id,
                   rating: entry.rating,
                   remarks: entry.remarks ?? "",
-                  by: currentUser.name,
+                  by: sessionUser?.name ?? "",
                   date: new Date(entry.createdAt).toLocaleString()
                 },
                 ...vendor.ratings
@@ -188,6 +216,8 @@ export default function VendorManagementPage() {
         phone: newVendor.phone,
         work: newVendor.work,
         gstin: newVendor.gstin,
+        panCard: newVendor.panCard,
+        pocName: newVendor.pocName,
         status: newVendor.status === "Active" ? "ACTIVE" : "INACTIVE",
         currentEvent: newVendor.currentEvent
       })
@@ -203,16 +233,88 @@ export default function VendorManagementPage() {
         phone: created.phone,
         work: created.work,
         gstin: created.gstin ?? "",
+        panCard: created.panCard ?? "",
+        pocName: created.pocName ?? "",
         status: created.status === "ACTIVE" ? "Active" : "Inactive",
         currentEvent: created.currentEvent ?? "",
         onboardedAt: new Date(created.onboardedAt).toLocaleString(),
-        onboardedBy: currentUser.name,
+        onboardedBy: sessionUser?.name ?? "",
+        onboardedById: sessionUser?.id ?? "",
         ratings: []
       },
       ...prev
     ]);
     setIsAddOpen(false);
   };
+
+  const openEditVendor = (vendor: Vendor) => {
+    setEditVendorId(vendor.id);
+    setEditForm({ ...vendor });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editForm || !editVendorId) return;
+    setEditSaving(true);
+    const response = await fetch(`/api/vendors/${editVendorId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyName: editForm.companyName,
+        email: editForm.email,
+        phone: editForm.phone,
+        work: editForm.work,
+        location: editForm.location,
+        gstin: editForm.gstin,
+        panCard: editForm.panCard,
+        pocName: editForm.pocName,
+        status: editForm.status === "Active" ? "ACTIVE" : "INACTIVE",
+        currentEvent: editForm.currentEvent
+      })
+    });
+    setEditSaving(false);
+    if (!response.ok) {
+      const msg = await response.text();
+      alert(msg || "Failed to update vendor");
+      return;
+    }
+    const updated = await response.json();
+    setVendors((prev) =>
+      prev.map((v) =>
+        v.id === editVendorId
+          ? {
+              ...v,
+              companyName: updated.companyName,
+              email: updated.email ?? "",
+              phone: updated.phone,
+              work: updated.work,
+              location: updated.location ?? "",
+              gstin: updated.gstin ?? "",
+              panCard: updated.panCard ?? "",
+              pocName: updated.pocName ?? "",
+              status: updated.status === "ACTIVE" ? "Active" : "Inactive",
+              currentEvent: updated.currentEvent ?? ""
+            }
+          : v
+      )
+    );
+    setEditVendorId(null);
+    setEditForm(null);
+  };
+
+  // Skeleton rows for loading state
+  const SkeletonTableRows = () => (
+    <>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <tr key={i}>
+          {Array.from({ length: 13 }).map((_, j) => (
+            <td key={j}>
+              <div className="skeleton skeleton-cell" style={{ width: j === 0 ? 25 : j < 3 ? 120 : 80, height: 14 }} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
 
   return (
     <>
@@ -227,7 +329,7 @@ export default function VendorManagementPage() {
         <div className="panel-header claims-header">
           <div>
             <h2>Vendors</h2>
-            <p className="muted">Onboarded by: {currentUser.name}</p>
+            {sessionUser && <p className="muted">Logged in as: {sessionUser.name}</p>}
           </div>
           <div className="claims-actions">
             <button className="btn-outline hover-text" type="button" onClick={handleAddVendor}>
@@ -242,11 +344,13 @@ export default function VendorManagementPage() {
                 <tr>
                   <th>S.No</th>
                   <th>Company Name</th>
+                  <th>POC Name</th>
                   <th>Email</th>
                   <th>Location</th>
                   <th>Ph No</th>
                   <th>Work</th>
                   <th>GSTIN</th>
+                  <th>PAN Card</th>
                   <th>Status</th>
                   <th>Rating</th>
                   <th>History</th>
@@ -254,9 +358,11 @@ export default function VendorManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {vendors.length === 0 ? (
+                {loading ? (
+                  <SkeletonTableRows />
+                ) : vendors.length === 0 ? (
                   <tr>
-                    <td colSpan={11}>
+                    <td colSpan={13}>
                       <div className="empty-state">No onboarded vendors yet.</div>
                     </td>
                   </tr>
@@ -265,11 +371,13 @@ export default function VendorManagementPage() {
                     <tr key={vendor.id}>
                       <td>{index + 1}</td>
                       <td>{vendor.companyName || "—"}</td>
+                      <td>{vendor.pocName || "—"}</td>
                       <td>{vendor.email || "—"}</td>
                       <td>{vendor.location || "—"}</td>
                       <td>{vendor.phone || "—"}</td>
                       <td>{vendor.work || "—"}</td>
                       <td>{vendor.gstin || "—"}</td>
+                      <td>{vendor.panCard || "—"}</td>
                       <td>
                         <span className={`status-pill ${vendor.status === "Active" ? "active" : "inactive"}`}>
                           {vendor.status}
@@ -300,17 +408,28 @@ export default function VendorManagementPage() {
                         </button>
                       </td>
                       <td>
-                        <button
-                          className="row-remove"
-                          type="button"
-                          aria-label="Delete vendor"
-                          onClick={() => {
-                            setDeleteVendorId(vendor.id);
-                            setDeleteConfirmText("");
-                          }}
-                        >
-                          ×
-                        </button>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {canEditVendor(vendor) && (
+                            <button
+                              className="edit-btn"
+                              type="button"
+                              onClick={() => openEditVendor(vendor)}
+                            >
+                              ✎ Edit
+                            </button>
+                          )}
+                          <button
+                            className="row-remove"
+                            type="button"
+                            aria-label="Delete vendor"
+                            onClick={() => {
+                              setDeleteVendorId(vendor.id);
+                              setDeleteConfirmText("");
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -439,7 +558,7 @@ export default function VendorManagementPage() {
 
       {isAddOpen ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-card">
+          <div className="modal-card" style={{ maxHeight: "90vh", overflowY: "auto" }}>
             <h3>Add Vendor</h3>
             <label className="auth-label" htmlFor="vendor-company">
               Company Name
@@ -450,6 +569,16 @@ export default function VendorManagementPage() {
               value={newVendor.companyName}
               onChange={(event) => setNewVendor((prev) => ({ ...prev, companyName: event.target.value }))}
               placeholder="Company"
+            />
+            <label className="auth-label" htmlFor="vendor-poc">
+              POC Name
+            </label>
+            <input
+              id="vendor-poc"
+              className="input"
+              value={newVendor.pocName}
+              onChange={(event) => setNewVendor((prev) => ({ ...prev, pocName: event.target.value }))}
+              placeholder="Point of Contact"
             />
             <label className="auth-label" htmlFor="vendor-email">
               Email
@@ -502,6 +631,16 @@ export default function VendorManagementPage() {
               onChange={(event) => setNewVendor((prev) => ({ ...prev, gstin: event.target.value }))}
               placeholder="GSTIN"
             />
+            <label className="auth-label" htmlFor="vendor-pan">
+              PAN Card
+            </label>
+            <input
+              id="vendor-pan"
+              className="input"
+              value={newVendor.panCard}
+              onChange={(event) => setNewVendor((prev) => ({ ...prev, panCard: event.target.value }))}
+              placeholder="PAN Card Number"
+            />
             <label className="auth-label" htmlFor="vendor-status">
               Status
             </label>
@@ -536,6 +675,63 @@ export default function VendorManagementPage() {
               </button>
               <button className="btn-primary" type="button" onClick={handleCreateVendor}>
                 Save Vendor
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editForm && editVendorId ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+            <h3>Edit Vendor</h3>
+            <p className="muted">Editing: {editForm.companyName}</p>
+            <label className="auth-label" htmlFor="edit-company">Company Name</label>
+            <input id="edit-company" className="input" value={editForm.companyName}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, companyName: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-poc">POC Name</label>
+            <input id="edit-poc" className="input" value={editForm.pocName}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, pocName: e.target.value }))}
+              placeholder="Point of Contact" />
+            <label className="auth-label" htmlFor="edit-email">Email</label>
+            <input id="edit-email" className="input" type="email" value={editForm.email}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, email: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-phone">Phone</label>
+            <input id="edit-phone" className="input" value={editForm.phone}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, phone: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-location">Location</label>
+            <input id="edit-location" className="input" value={editForm.location}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, location: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-work">Work</label>
+            <input id="edit-work" className="input" value={editForm.work}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, work: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-gstin">GSTIN</label>
+            <input id="edit-gstin" className="input" value={editForm.gstin}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, gstin: e.target.value }))} />
+            <label className="auth-label" htmlFor="edit-pan">PAN Card</label>
+            <input id="edit-pan" className="input" value={editForm.panCard}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, panCard: e.target.value }))}
+              placeholder="PAN Card Number" />
+            <label className="auth-label" htmlFor="edit-status">Status</label>
+            <select id="edit-status" className="input select" value={editForm.status}
+              onChange={(e) => setEditForm((p) => p && ({ ...p, status: e.target.value as Vendor["status"] }))}>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+            {editForm.status === "Active" ? (
+              <>
+                <label className="auth-label" htmlFor="edit-event">Current Event</label>
+                <input id="edit-event" className="input" value={editForm.currentEvent}
+                  onChange={(e) => setEditForm((p) => p && ({ ...p, currentEvent: e.target.value }))}
+                  placeholder="Event name" />
+              </>
+            ) : null}
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => { setEditVendorId(null); setEditForm(null); }}>
+                Cancel
+              </button>
+              <button className="btn-primary" type="button" onClick={handleSaveEdit} disabled={editSaving}>
+                {editSaving ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>
