@@ -6,6 +6,7 @@ import SidebarIcon from "./SidebarIcon";
 
 const LINKS = [
   { label: "Dashboard", href: "/accountant", icon: "dashboard" },
+  { label: "Events", href: "/accountant/events", icon: "events" },
   { label: "Expense Management", href: "/accountant/claim-management", icon: "expenses" },
   { label: "Vendor Management", href: "/accountant/vendor-management", icon: "vendors" },
   { label: "Finance", href: "/accountant/finance", icon: "finance" }

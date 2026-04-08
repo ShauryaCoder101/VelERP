@@ -22,9 +22,10 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
   const { id: eventId } = await context.params;
 
-  // Check user is a team member of this event
+  // Check user is a team member of this event, or an MD, or an Accountant
   const isMD = requireMinLevel(role, 1);
-  if (!isMD) {
+  const isAccountant = role === "Accountant";
+  if (!isMD && !isAccountant) {
     const membership = await prisma.eventTeamMember.findUnique({
       where: { eventId_userId: { eventId, userId } }
     });
