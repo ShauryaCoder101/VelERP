@@ -12,6 +12,16 @@ type FinanceRow = {
   advancePaid: number;
   totalPaid: number;
   closed: boolean;
+  paymentMode: string;
+  notes: string;
+};
+
+type SanctionRow = {
+  id: string;
+  userId: string;
+  userName: string;
+  userDesignation: string;
+  sanctionedAmount: number;
   notes: string;
 };
 
@@ -28,6 +38,28 @@ type EventDetail = {
   teamMembers: { user: { id: string; name: string; designation: string } }[];
   finances: any[];
   claims: any[];
+  sanctions: any[];
+};
+
+const PAYMENT_MODES = [
+  { value: "NOTA", label: "NOTA" },
+  { value: "CREDIT_CARD", label: "Credit Card" },
+  { value: "DEBIT_CARD", label: "Debit Card" },
+  { value: "UPI", label: "UPI" },
+];
+
+const paymentModeLabel = (mode: string) => {
+  const found = PAYMENT_MODES.find((m) => m.value === mode);
+  return found?.label ?? mode;
+};
+
+const paymentModeColor = (mode: string): string => {
+  switch (mode) {
+    case "CREDIT_CARD": return "#8b5cf6";
+    case "DEBIT_CARD": return "#3b82f6";
+    case "UPI": return "#16b65f";
+    default: return "#6b7280";
+  }
 };
 
 const phaseLabel = (p: string) => {
@@ -77,11 +109,17 @@ export default function AccountantEventDetailPage() {
   const [ev, setEv] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [finances, setFinances] = useState<FinanceRow[]>([]);
+  const [sanctions, setSanctions] = useState<SanctionRow[]>([]);
 
   // Finance edit state
   const [financeEditId, setFinanceEditId] = useState<string | null>(null);
-  const [financeForm, setFinanceForm] = useState({ quotedAmount: 0, advancePaid: 0, totalPaid: 0, notes: "" });
+  const [financeForm, setFinanceForm] = useState({ quotedAmount: 0, advancePaid: 0, totalPaid: 0, paymentMode: "NOTA", notes: "" });
   const [financeSaving, setFinanceSaving] = useState(false);
+
+  // Sanction edit state
+  const [sanctionEditId, setSanctionEditId] = useState<string | null>(null); // userId being edited, or "NEW" for adding
+  const [sanctionForm, setSanctionForm] = useState({ userId: "", sanctionedAmount: 0, notes: "" });
+  const [sanctionSaving, setSanctionSaving] = useState(false);
 
   const loadEvent = () => {
     fetch(`/api/events/${id}`)
@@ -98,7 +136,18 @@ export default function AccountantEventDetailPage() {
             advancePaid: f.advancePaid,
             totalPaid: f.totalPaid,
             closed: f.closed,
+            paymentMode: f.paymentMode ?? "NOTA",
             notes: f.notes ?? ""
+          })));
+        }
+        if (d?.sanctions) {
+          setSanctions(d.sanctions.map((s: any) => ({
+            id: s.id,
+            userId: s.userId,
+            userName: s.user?.name ?? "",
+            userDesignation: s.user?.designation ?? "",
+            sanctionedAmount: s.sanctionedAmount,
+            notes: s.notes ?? ""
           })));
         }
         setLoading(false);
@@ -108,6 +157,8 @@ export default function AccountantEventDetailPage() {
 
   useEffect(() => { loadEvent(); }, [id]);
 
+  // ── Finance handlers ──
+
   const openFinanceEdit = (vendorId: string) => {
     const existing = finances.find((f) => f.vendorId === vendorId);
     setFinanceEditId(vendorId);
@@ -115,6 +166,7 @@ export default function AccountantEventDetailPage() {
       quotedAmount: existing?.quotedAmount ?? 0,
       advancePaid: existing?.advancePaid ?? 0,
       totalPaid: existing?.totalPaid ?? 0,
+      paymentMode: existing?.paymentMode ?? "NOTA",
       notes: existing?.notes ?? ""
     });
   };
@@ -130,6 +182,7 @@ export default function AccountantEventDetailPage() {
         quotedAmount: financeForm.quotedAmount,
         advancePaid: financeForm.advancePaid,
         totalPaid: financeForm.totalPaid,
+        paymentMode: financeForm.paymentMode,
         notes: financeForm.notes
       })
     });
@@ -147,6 +200,7 @@ export default function AccountantEventDetailPage() {
         advancePaid: saved.advancePaid,
         totalPaid: saved.totalPaid,
         closed: saved.closed,
+        paymentMode: saved.paymentMode ?? "NOTA",
         notes: saved.notes ?? ""
       };
       if (idx >= 0) { const next = [...prev]; next[idx] = row; return next; }
@@ -173,6 +227,66 @@ export default function AccountantEventDetailPage() {
       body: JSON.stringify({ vendorId, closed: false })
     });
     setFinances((prev) => prev.map((f) => f.vendorId === vendorId ? { ...f, closed: false } : f));
+  };
+
+  // ── Sanction handlers ──
+
+  const openSanctionAdd = () => {
+    setSanctionEditId("NEW");
+    setSanctionForm({ userId: "", sanctionedAmount: 0, notes: "" });
+  };
+
+  const openSanctionEdit = (userId: string) => {
+    const existing = sanctions.find((s) => s.userId === userId);
+    setSanctionEditId(userId);
+    setSanctionForm({
+      userId,
+      sanctionedAmount: existing?.sanctionedAmount ?? 0,
+      notes: existing?.notes ?? ""
+    });
+  };
+
+  const saveSanction = async () => {
+    if (!ev) return;
+    const targetUserId = sanctionEditId === "NEW" ? sanctionForm.userId : sanctionEditId;
+    if (!targetUserId) return;
+    setSanctionSaving(true);
+    const res = await fetch(`/api/events/${ev.id}/sanctions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: targetUserId,
+        sanctionedAmount: sanctionForm.sanctionedAmount,
+        notes: sanctionForm.notes
+      })
+    });
+    setSanctionSaving(false);
+    if (!res.ok) return;
+    const saved = await res.json();
+    const row: SanctionRow = {
+      id: saved.id,
+      userId: saved.userId,
+      userName: saved.user?.name ?? "",
+      userDesignation: saved.user?.designation ?? "",
+      sanctionedAmount: saved.sanctionedAmount,
+      notes: saved.notes ?? ""
+    };
+    setSanctions((prev) => {
+      const idx = prev.findIndex((s) => s.userId === targetUserId);
+      if (idx >= 0) { const next = [...prev]; next[idx] = row; return next; }
+      return [...prev, row];
+    });
+    setSanctionEditId(null);
+  };
+
+  const deleteSanction = async (userId: string) => {
+    if (!ev) return;
+    await fetch(`/api/events/${ev.id}/sanctions`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId })
+    });
+    setSanctions((prev) => prev.filter((s) => s.userId !== userId));
   };
 
   if (loading) {
@@ -206,7 +320,8 @@ export default function AccountantEventDetailPage() {
     return {
       vendorId: v.vendor.id, vendorName: v.vendor.companyName, vendorWork: v.vendor.work,
       quotedAmount: f?.quotedAmount ?? 0, advancePaid: f?.advancePaid ?? 0,
-      totalPaid: f?.totalPaid ?? 0, closed: f?.closed ?? false, notes: f?.notes ?? ""
+      totalPaid: f?.totalPaid ?? 0, closed: f?.closed ?? false,
+      paymentMode: f?.paymentMode ?? "NOTA", notes: f?.notes ?? ""
     };
   });
 
@@ -215,6 +330,11 @@ export default function AccountantEventDetailPage() {
   const totalPaidAll = allEventVendors.reduce((s, v) => s + v.totalPaid, 0);
   const totalBalance = totalQuoted - totalPaidAll;
   const totalClaims = (ev.claims ?? []).reduce((sum: number, c: any) => sum + (c.items ?? []).reduce((s: number, i: any) => s + i.amount, 0), 0);
+
+  const totalSanctioned = sanctions.reduce((s, r) => s + r.sanctionedAmount, 0);
+  // Team members not yet sanctioned (for the add dropdown)
+  const sanctionedUserIds = new Set(sanctions.map((s) => s.userId));
+  const unsanctionedTeamMembers = ev.teamMembers.filter((tm) => !sanctionedUserIds.has(tm.user.id));
 
   return (
     <>
@@ -304,6 +424,7 @@ export default function AccountantEventDetailPage() {
                     <th>Advance Paid</th>
                     <th>Total Paid</th>
                     <th>To Be Done</th>
+                    <th>Payment Mode</th>
                     <th>Status</th>
                     <th>Notes</th>
                     <th>Actions</th>
@@ -312,6 +433,7 @@ export default function AccountantEventDetailPage() {
                 <tbody>
                   {allEventVendors.map((v) => {
                     const balance = v.quotedAmount - v.totalPaid;
+                    const mColor = paymentModeColor(v.paymentMode);
                     return (
                       <tr key={v.vendorId} style={v.closed ? { opacity: 0.6 } : {}}>
                         <td><strong>{v.vendorName}</strong></td>
@@ -321,6 +443,11 @@ export default function AccountantEventDetailPage() {
                         <td className="amount-cell">{v.totalPaid > 0 ? cur(v.totalPaid) : "—"}</td>
                         <td className={`balance-cell ${balance <= 0 ? "settled" : ""}`}>
                           {v.quotedAmount > 0 ? cur(Math.max(0, balance)) : "—"}
+                        </td>
+                        <td>
+                          <span className="closed-pill" style={{ background: `${mColor}18`, color: mColor, borderColor: `${mColor}40` }}>
+                            {paymentModeLabel(v.paymentMode)}
+                          </span>
                         </td>
                         <td>
                           <span className={`closed-pill ${v.closed ? "done" : "open"}`}>
@@ -357,6 +484,7 @@ export default function AccountantEventDetailPage() {
                       <td />
                       <td />
                       <td />
+                      <td />
                     </tr>
                   )}
                 </tbody>
@@ -365,6 +493,78 @@ export default function AccountantEventDetailPage() {
           </div>
         </section>
       )}
+
+      {/* ── Sanctioned Amounts Section ── */}
+      <section className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-header claims-header">
+          <div>
+            <h2>Sanctioned Amounts</h2>
+            <p className="muted">Amounts sanctioned to team members for event payments.</p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {totalSanctioned > 0 && (
+              <span style={{ fontSize: 13 }}>Total Sanctioned: <strong>{cur(totalSanctioned)}</strong></span>
+            )}
+            {unsanctionedTeamMembers.length > 0 && (
+              <button className="btn-primary" type="button" onClick={openSanctionAdd} style={{ padding: "6px 16px", fontSize: 13 }}>
+                + Add Sanction
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="panel-body">
+          {sanctions.length === 0 ? (
+            <div className="empty-state">No sanctioned amounts for this event yet.</div>
+          ) : (
+            <div className="table-wrap">
+              <table className="finance-table">
+                <thead>
+                  <tr>
+                    <th>Team Member</th>
+                    <th>Designation</th>
+                    <th>Sanctioned Amount</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sanctions.map((s) => (
+                    <tr key={s.userId}>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{s.userName.charAt(0)}</span>
+                          <strong>{s.userName}</strong>
+                        </div>
+                      </td>
+                      <td className="muted">{s.userDesignation}</td>
+                      <td className="amount-cell" style={{ fontWeight: 600 }}>{cur(s.sanctionedAmount)}</td>
+                      <td className="muted" style={{ maxWidth: 200, fontSize: 12 }}>{s.notes || "—"}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="finance-edit-btn" type="button" onClick={() => openSanctionEdit(s.userId)}>
+                            Edit
+                          </button>
+                          <button className="finance-close-btn" type="button" onClick={() => deleteSanction(s.userId)}>
+                            Remove
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {sanctions.length > 1 && (
+                    <tr className="finance-summary-row">
+                      <td colSpan={2}><strong>Total</strong></td>
+                      <td className="amount-cell">{cur(totalSanctioned)}</td>
+                      <td />
+                      <td />
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Expense Claims summary */}
       <section className="panel" style={{ marginTop: 16 }}>
@@ -440,6 +640,15 @@ export default function AccountantEventDetailPage() {
               </strong>
             </div>
 
+            <label className="auth-label" htmlFor="fin-mode">Mode of Payment</label>
+            <select id="fin-mode" className="input"
+              value={financeForm.paymentMode}
+              onChange={(e) => setFinanceForm((p) => ({ ...p, paymentMode: e.target.value }))}>
+              {PAYMENT_MODES.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+
             <label className="auth-label" htmlFor="fin-notes">Notes</label>
             <textarea id="fin-notes" className="input textarea" rows={2}
               value={financeForm.notes}
@@ -450,6 +659,53 @@ export default function AccountantEventDetailPage() {
               <button className="btn-outline hover-text" type="button" onClick={() => setFinanceEditId(null)}>Cancel</button>
               <button className="btn-primary" type="button" onClick={saveFinance} disabled={financeSaving}>
                 {financeSaving ? "Saving…" : "Save Finance"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sanction Edit/Add Modal */}
+      {sanctionEditId && ev && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card" style={{ maxWidth: 440 }}>
+            <h3>{sanctionEditId === "NEW" ? "Add Sanction" : "Edit Sanction"}</h3>
+            <p className="muted">
+              {sanctionEditId === "NEW"
+                ? "Allocate a payment amount to a team member."
+                : `Editing sanction for ${sanctions.find((s) => s.userId === sanctionEditId)?.userName ?? "member"}`}
+            </p>
+
+            {sanctionEditId === "NEW" && (
+              <>
+                <label className="auth-label" htmlFor="sanc-user">Team Member</label>
+                <select id="sanc-user" className="input"
+                  value={sanctionForm.userId}
+                  onChange={(e) => setSanctionForm((p) => ({ ...p, userId: e.target.value }))}>
+                  <option value="">Select a team member…</option>
+                  {unsanctionedTeamMembers.map((tm) => (
+                    <option key={tm.user.id} value={tm.user.id}>{tm.user.name} — {tm.user.designation}</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            <label className="auth-label" htmlFor="sanc-amount">Sanctioned Amount (₹)</label>
+            <input id="sanc-amount" className="input" type="number" min="0" step="1"
+              value={sanctionForm.sanctionedAmount}
+              onChange={(e) => setSanctionForm((p) => ({ ...p, sanctionedAmount: parseFloat(e.target.value) || 0 }))} />
+
+            <label className="auth-label" htmlFor="sanc-notes">Notes</label>
+            <textarea id="sanc-notes" className="input textarea" rows={2}
+              value={sanctionForm.notes}
+              onChange={(e) => setSanctionForm((p) => ({ ...p, notes: e.target.value }))}
+              placeholder="Optional notes" />
+
+            <div className="modal-actions">
+              <button className="btn-outline hover-text" type="button" onClick={() => setSanctionEditId(null)}>Cancel</button>
+              <button className="btn-primary" type="button" onClick={saveSanction}
+                disabled={sanctionSaving || (sanctionEditId === "NEW" && !sanctionForm.userId)}>
+                {sanctionSaving ? "Saving…" : sanctionEditId === "NEW" ? "Add Sanction" : "Update Sanction"}
               </button>
             </div>
           </div>

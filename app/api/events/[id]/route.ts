@@ -19,6 +19,10 @@ const eventInclude = {
   finances: {
     include: { vendor: { select: { id: true, companyName: true, work: true } } },
     orderBy: { createdAt: "asc" as const }
+  },
+  sanctions: {
+    include: { user: { select: { id: true, name: true, designation: true } } },
+    orderBy: { createdAt: "asc" as const }
   }
 };
 
@@ -56,6 +60,8 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     await tx.expenseItem.deleteMany({ where: { claim: { eventId: id } } });
     await tx.expenseAttachment.deleteMany({ where: { claim: { eventId: id } } });
     await tx.expenseClaim.deleteMany({ where: { eventId: id } });
+    await tx.eventVendorFinance.deleteMany({ where: { eventId: id } });
+    await tx.eventSanction.deleteMany({ where: { eventId: id } });
     await tx.event.delete({ where: { id } });
   });
 

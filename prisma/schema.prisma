@@ -27,6 +27,13 @@ enum Status {
   INACTIVE
 }
 
+enum PaymentMode {
+  CREDIT_CARD
+  DEBIT_CARD
+  UPI
+  NOTA
+}
+
 enum Phase {
   IDEATION
   PITCHING
@@ -63,6 +70,7 @@ model User {
   notifications    Notification[]    @relation("NotificationActor")
   assignedLeads    Lead[]            @relation("LeadAssignedTo")
   assignedDeals    Deal[]            @relation("DealAssignedTo")
+  sanctions        EventSanction[]   @relation("UserSanctions")
 }
 
 model Session {
@@ -96,6 +104,7 @@ model Event {
   uploads     Upload[]
   claims      ExpenseClaim[]
   finances    EventVendorFinance[]
+  sanctions   EventSanction[]
 }
 
 model Vendor {
@@ -167,21 +176,37 @@ model EventVendor {
 }
 
 model EventVendorFinance {
-  id            String   @id @default(uuid())
+  id            String      @id @default(uuid())
   eventId       String
   vendorId      String
-  quotedAmount  Float    @default(0)
-  advancePaid   Float    @default(0)
-  totalPaid     Float    @default(0)
-  closed        Boolean  @default(false)
+  quotedAmount  Float       @default(0)
+  advancePaid   Float       @default(0)
+  totalPaid     Float       @default(0)
+  closed        Boolean     @default(false)
+  paymentMode   PaymentMode @default(NOTA)
   notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   event   Event  @relation(fields: [eventId], references: [id])
   vendor  Vendor @relation(fields: [vendorId], references: [id])
 
   @@unique([eventId, vendorId])
+}
+
+model EventSanction {
+  id               String   @id @default(uuid())
+  eventId          String
+  userId           String
+  sanctionedAmount Float    @default(0)
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id])
+  user  User  @relation("UserSanctions", fields: [userId], references: [id])
+
+  @@unique([eventId, userId])
 }
 
 model EventArtist {

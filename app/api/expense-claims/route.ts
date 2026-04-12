@@ -23,7 +23,6 @@ export async function POST(request: Request) {
     data: {
       userId,
       eventId: body.eventId ?? null,
-      status: body.status ?? "INCOMPLETE",
       items: body.items
         ? {
             create: body.items.map((item: { eventName: string; location: string; type: string; date: string; amount: number }) => ({

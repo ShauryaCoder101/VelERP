@@ -18,12 +18,15 @@ type ClaimItem = {
 type ExpenseClaim = {
   id: string;
   userId: string;
-  status: "INCOMPLETE" | "FLAGGED" | "DONE";
+  status: "ACTIVE" | "INACTIVE";
   submittedAt: string;
   items: ClaimItem[];
 };
 
-const STATUS_OPTIONS: ExpenseClaim["status"][] = ["INCOMPLETE", "FLAGGED", "DONE"];
+const STATUS_OPTIONS: { value: ExpenseClaim["status"]; label: string }[] = [
+  { value: "INACTIVE", label: "Pending" },
+  { value: "ACTIVE", label: "Approved" },
+];
 
 export default function AccountantClaimManagementPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -149,9 +152,9 @@ export default function AccountantClaimManagementPage() {
                                         handleStatusChange(claim.id, event.target.value as ExpenseClaim["status"])
                                       }
                                     >
-                                      {STATUS_OPTIONS.map((status) => (
-                                        <option key={status} value={status}>
-                                          {status}
+                                      {STATUS_OPTIONS.map((opt) => (
+                                        <option key={opt.value} value={opt.value}>
+                                          {opt.label}
                                         </option>
                                       ))}
                                     </select>

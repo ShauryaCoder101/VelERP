@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   }
 
   const body = await request.json();
-  const { vendorId, quotedAmount, advancePaid, totalPaid, closed, notes } = body;
+  const { vendorId, quotedAmount, advancePaid, totalPaid, closed, notes, paymentMode } = body;
 
   if (!vendorId) {
     return new Response("vendorId is required", { status: 400 });
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       advancePaid: advancePaid ?? 0,
       totalPaid: totalPaid ?? 0,
       closed: closed ?? false,
+      paymentMode: paymentMode ?? "NOTA",
       notes: notes ?? null
     },
     update: {
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       ...(advancePaid !== undefined && { advancePaid }),
       ...(totalPaid !== undefined && { totalPaid }),
       ...(closed !== undefined && { closed }),
+      ...(paymentMode !== undefined && { paymentMode }),
       ...(notes !== undefined && { notes: notes || null })
     },
     include: { vendor: { select: { id: true, companyName: true, work: true } } }
