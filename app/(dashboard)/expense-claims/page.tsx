@@ -54,11 +54,46 @@ export default function ExpenseClaimsPage() {
     setRows((prev) => prev.filter((row) => row.id !== id));
   };
 
+  const [submitting, setSubmitting] = useState(false);
+
+  const uploadFileToS3 = async (file: File, eventId: string): Promise<{ fileUrl: string; fileType: string } | null> => {
+    try {
+      // 1. Get presigned URL from server
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, fileType: file.type, eventId })
+      });
+      if (!presignRes.ok) return null;
+      const { uploadUrl, fileUrl } = await presignRes.json();
+
+      // 2. PUT file directly to S3
+      await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file
+      });
+
+      return { fileUrl, fileType: file.type };
+    } catch {
+      return null;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setSubmitting(true);
     for (const row of rows) {
       if (!row.eventId || !row.date || !row.amount) continue;
       const selectedEvent = events.find((ev) => ev.id === row.eventId);
+
+      // Upload attachment to S3 if present
+      let attachments: { fileUrl: string; fileType: string }[] = [];
+      if (row.attachment) {
+        const uploaded = await uploadFileToS3(row.attachment, row.eventId);
+        if (uploaded) attachments = [uploaded];
+      }
+
       await fetch("/api/expense-claims", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -71,12 +106,11 @@ export default function ExpenseClaimsPage() {
             date: row.date,
             amount: Number(row.amount)
           }],
-          attachments: row.attachment
-            ? [{ fileUrl: row.attachment.name, fileType: row.attachment.type }]
-            : []
+          attachments
         })
       }).catch(() => null);
     }
+    setSubmitting(false);
     setRows([createRow(1)]);
   };
 
@@ -99,8 +133,8 @@ export default function ExpenseClaimsPage() {
             <button className="btn-outline hover-text" type="button" onClick={handleAddRow}>
               Add a Row
             </button>
-            <button className="btn-primary" type="submit" form="claims-form">
-              Submit
+            <button className="btn-primary" type="submit" form="claims-form" disabled={submitting}>
+              {submitting ? "Uploading…" : "Submit"}
             </button>
           </div>
         </div>
