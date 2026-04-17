@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type TeamMember = {
   id: string;
@@ -43,6 +43,26 @@ export default function AccountantClaimManagementPage() {
   const [claims, setClaims] = useState<ExpenseClaim[]>([]);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
+  const openSignedUrl = useCallback(async (rawUrl: string, mode: "preview" | "tab") => {
+    try {
+      setLoadingPreview(true);
+      const res = await fetch(`/api/uploads/view?url=${encodeURIComponent(rawUrl)}`);
+      if (!res.ok) throw new Error("Failed to get signed URL");
+      const { signedUrl } = await res.json();
+      if (mode === "preview") {
+        setPreviewUrl(signedUrl);
+      } else {
+        window.open(signedUrl, "_blank");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Could not load the file. Please try again.");
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -184,22 +204,23 @@ export default function AccountantClaimManagementPage() {
                                               key={att.id}
                                               type="button"
                                               className="finance-edit-btn"
-                                              onClick={() => setPreviewUrl(att.fileUrl)}
+                                              disabled={loadingPreview}
+                                              onClick={() => openSignedUrl(att.fileUrl, "preview")}
                                               style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                                             >
-                                              🖼 View
+                                              {loadingPreview ? "⏳" : "🖼"} View
                                             </button>
                                           ) : (
-                                            <a
+                                            <button
                                               key={att.id}
-                                              href={att.fileUrl}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
+                                              type="button"
                                               className="finance-edit-btn"
-                                              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+                                              disabled={loadingPreview}
+                                              onClick={() => openSignedUrl(att.fileUrl, "tab")}
+                                              style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "none", border: "none", cursor: "pointer" }}
                                             >
-                                              📄 View PDF
-                                            </a>
+                                              {loadingPreview ? "⏳" : "📄"} View PDF
+                                            </button>
                                           )
                                         ))}
                                       </div>
@@ -246,6 +267,9 @@ export default function AccountantClaimManagementPage() {
               <div style={{ display: "flex", gap: 8 }}>
                 <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn-outline hover-text" style={{ padding: "6px 14px", textDecoration: "none", fontSize: 13 }}>
                   Open Full Size ↗
+                </a>
+                <a href={previewUrl} download className="btn-outline hover-text" style={{ padding: "6px 14px", textDecoration: "none", fontSize: 13 }}>
+                  ⬇ Download
                 </a>
                 <button className="btn-outline hover-text" type="button" onClick={() => setPreviewUrl(null)} style={{ padding: "6px 14px" }}>
                   ✕ Close
