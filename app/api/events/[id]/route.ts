@@ -12,7 +12,8 @@ const eventInclude = {
   claims: {
     include: {
       user: { select: { id: true, name: true, designation: true } },
-      items: true
+      items: true,
+      attachments: true
     },
     orderBy: { createdAt: "desc" as const }
   },

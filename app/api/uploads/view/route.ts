@@ -4,9 +4,9 @@ import { getS3Config, createS3Client } from "../../../../lib/s3";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 
 export async function GET(request: Request) {
-  const { role } = await getRequestUser(request);
-  // Allow anyone with level 3+ or Accountant role
-  if (!requireMinLevel(role, 3) && role !== "Accountant") {
+  const { id: userId } = await getRequestUser(request);
+  // Allow any authenticated user to view uploaded bills
+  if (!userId) {
     return new Response("Forbidden", { status: 403 });
   }
 

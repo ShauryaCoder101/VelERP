@@ -21,12 +21,19 @@ type ExpenseItemRow = {
   amount: number;
 };
 
+type ClaimAttachment = {
+  id: string;
+  fileUrl: string;
+  fileType: string;
+};
+
 type ClaimItem = {
   id: string;
   status: string;
   createdAt: string;
   user: { id: string; name: string; designation: string };
   items: ExpenseItemRow[];
+  attachments: ClaimAttachment[];
 };
 
 type FinanceRow = {
@@ -134,6 +141,8 @@ export default function EventDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [billPreviewUrl, setBillPreviewUrl] = useState<string | null>(null);
+  const [loadingBillPreview, setLoadingBillPreview] = useState(false);
   const [costSheetUploading, setCostSheetUploading] = useState(false);
   const [closingSheetUploading, setClosingSheetUploading] = useState(false);
 
@@ -301,6 +310,28 @@ export default function EventDetailPage() {
     loadEvent();
     setCostSheetUploading(false);
   };
+
+  // Bill preview handler
+  const openBillUrl = async (rawUrl: string, mode: "preview" | "tab") => {
+    try {
+      setLoadingBillPreview(true);
+      const res = await fetch(`/api/uploads/view?url=${encodeURIComponent(rawUrl)}`);
+      if (!res.ok) throw new Error("Failed to get signed URL");
+      const { signedUrl } = await res.json();
+      if (mode === "preview") {
+        setBillPreviewUrl(signedUrl);
+      } else {
+        window.open(signedUrl, "_blank");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Could not load the bill. Please try again.");
+    } finally {
+      setLoadingBillPreview(false);
+    }
+  };
+
+  const isBillImage = (fileType: string) => fileType.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(fileType);
 
   // Finance handlers
   const openFinanceEdit = (vendorId: string) => {
@@ -688,6 +719,7 @@ export default function EventDetailPage() {
                     <th>Status</th>
                     <th>Items</th>
                     <th>Total Amount</th>
+                    <th>Bill / Receipt</th>
                     <th>Date</th>
                   </tr>
                 </thead>
@@ -710,6 +742,39 @@ export default function EventDetailPage() {
                         <td><span className={`status-pill ${statusClass}`}>{statusLabel}</span></td>
                         <td>{claim.items.length} item{claim.items.length !== 1 ? "s" : ""}</td>
                         <td style={{ fontWeight: 600 }}>₹{total.toLocaleString("en-IN")}</td>
+                        <td>
+                          {claim.attachments && claim.attachments.length > 0 ? (
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {claim.attachments.map((att) => (
+                                isBillImage(att.fileType) ? (
+                                  <button
+                                    key={att.id}
+                                    type="button"
+                                    className="finance-edit-btn"
+                                    disabled={loadingBillPreview}
+                                    onClick={() => openBillUrl(att.fileUrl, "preview")}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                                  >
+                                    {loadingBillPreview ? "⏳" : "🖼"} View
+                                  </button>
+                                ) : (
+                                  <button
+                                    key={att.id}
+                                    type="button"
+                                    className="finance-edit-btn"
+                                    disabled={loadingBillPreview}
+                                    onClick={() => openBillUrl(att.fileUrl, "tab")}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                                  >
+                                    {loadingBillPreview ? "⏳" : "📄"} View PDF
+                                  </button>
+                                )
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
                         <td className="muted">{fmt(claim.createdAt)}</td>
                       </tr>
                     );
@@ -833,6 +898,33 @@ export default function EventDetailPage() {
           <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
             <button className="lightbox-close" type="button" onClick={() => setLightbox(null)}>×</button>
             <img src={lightbox} alt="Full size" className="lightbox-img" />
+          </div>
+        </div>
+      )}
+
+      {/* Bill Preview Modal */}
+      {billPreviewUrl && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={() => setBillPreviewUrl(null)}>
+          <div className="modal-card" style={{ maxWidth: 720, padding: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>Bill / Receipt</h3>
+              <div style={{ display: "flex", gap: 8 }}>
+                <a href={billPreviewUrl} target="_blank" rel="noopener noreferrer" className="btn-outline hover-text" style={{ padding: "6px 14px", textDecoration: "none", fontSize: 13 }}>
+                  Open Full Size ↗
+                </a>
+                <a href={billPreviewUrl} download className="btn-outline hover-text" style={{ padding: "6px 14px", textDecoration: "none", fontSize: 13 }}>
+                  ⬇ Download
+                </a>
+                <button className="btn-outline hover-text" type="button" onClick={() => setBillPreviewUrl(null)} style={{ padding: "6px 14px" }}>
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+            <img
+              src={billPreviewUrl}
+              alt="Bill receipt"
+              style={{ width: "100%", maxHeight: "70vh", objectFit: "contain", borderRadius: 8, background: "var(--gray-100)" }}
+            />
           </div>
         </div>
       )}

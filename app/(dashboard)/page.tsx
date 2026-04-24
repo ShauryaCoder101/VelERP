@@ -23,11 +23,18 @@ const stageColor: Record<string, string> = {
   NEGOTIATION_REVIEW: "#e89b0c"
 };
 
-const statsCards = [
-  { title: "Total Events" },
-  { title: "Active Vendors" },
-  { title: "Pending Claims" },
-  { title: "Team Members" }
+type DashboardStats = {
+  totalEvents: number;
+  activeVendors: number;
+  pendingClaims: number;
+  teamMembers: number;
+};
+
+const statsCardsMeta = [
+  { key: "totalEvents" as const, title: "Total Events", color: "#3b82f6", icon: "📅" },
+  { key: "activeVendors" as const, title: "Active Vendors", color: "#16b65f", icon: "🏢" },
+  { key: "pendingClaims" as const, title: "Pending Claims", color: "#e89b0c", icon: "📋" },
+  { key: "teamMembers" as const, title: "Team Members", color: "#8b5cf6", icon: "👥" }
 ];
 
 const quickActions = ["Create Event", "Add Vendor", "File Claim", "Upload Files"];
@@ -80,14 +87,19 @@ const SkeletonTable = () => (
 
 export default function DashboardPage() {
   const [upcoming, setUpcoming] = useState<UpcomingDeal[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/sales/upcoming")
-      .then(r => r.json())
-      .then((data) => { setUpcoming(data); setLoading(false); })
-      .catch(() => setLoading(false));
+    Promise.all([
+      fetch("/api/sales/upcoming").then(r => r.json()).catch(() => []),
+      fetch("/api/stats").then(r => r.json()).catch(() => null)
+    ]).then(([dealsData, statsData]) => {
+      setUpcoming(dealsData);
+      setStats(statsData);
+      setLoading(false);
+    });
   }, []);
 
   return (
@@ -124,14 +136,13 @@ export default function DashboardPage() {
       ) : (
         <>
           <section className="stats-grid">
-            {statsCards.map((card) => (
+            {statsCardsMeta.map((card) => (
               <div key={card.title} className="stat-card">
-                <div className="stat-icon" aria-hidden="true" />
+                <div className="stat-icon" aria-hidden="true" style={{ fontSize: 22 }}>{card.icon}</div>
                 <div className="stat-content">
-                  <div className="stat-value">—</div>
+                  <div className="stat-value">{stats ? stats[card.key] : "—"}</div>
                   <div className="stat-label">{card.title}</div>
                 </div>
-                <div className="stat-trend">—</div>
               </div>
             ))}
           </section>
