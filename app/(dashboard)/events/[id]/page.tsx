@@ -711,77 +711,133 @@ export default function EventDetailPage() {
           {ev.claims.length === 0 ? (
             <div className="empty-state">No expense claims filed for this event.</div>
           ) : (
-            <div className="table-wrap">
-              <table className="claims-table">
-                <thead>
-                  <tr>
-                    <th>Filed By</th>
-                    <th>Status</th>
-                    <th>Items</th>
-                    <th>Total Amount</th>
-                    <th>Bill / Receipt</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ev.claims.map((claim) => {
-                    const total = claim.items.reduce((s, i) => s + i.amount, 0);
-                    const statusLabel = claim.status === "ACTIVE" ? "Approved" : claim.status === "INACTIVE" ? "Pending" : claim.status;
-                    const statusClass = claim.status === "ACTIVE" ? "active" : "inactive";
-                    return (
-                      <tr key={claim.id}>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{claim.user.name.charAt(0)}</span>
-                            <div>
-                              <strong>{claim.user.name}</strong>
-                              <div className="muted">{claim.user.designation}</div>
+            <>
+              {/* Per-employee breakdown */}
+              {(() => {
+                const byEmployee = new Map<string, { name: string; designation: string; total: number; count: number }>();
+                ev.claims.forEach((claim) => {
+                  const key = claim.user.id;
+                  const existing = byEmployee.get(key);
+                  const claimTotal = claim.items.reduce((s, i) => s + i.amount, 0);
+                  if (existing) {
+                    existing.total += claimTotal;
+                    existing.count += 1;
+                  } else {
+                    byEmployee.set(key, { name: claim.user.name, designation: claim.user.designation, total: claimTotal, count: 1 });
+                  }
+                });
+                const grandTotal = ev.claims.reduce((sum, c) => sum + c.items.reduce((s, i) => s + i.amount, 0), 0);
+                const employees = Array.from(byEmployee.values()).sort((a, b) => b.total - a.total);
+                return (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                    {employees.map((emp) => (
+                      <div key={emp.name} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 16px", borderRadius: 12,
+                        border: "1px solid var(--gray-200)", background: "var(--gray-100)",
+                        minWidth: 180
+                      }}>
+                        <span className="avatar" style={{ width: 32, height: 32, fontSize: 12 }}>{emp.name.charAt(0)}</span>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{emp.name}</div>
+                          <div className="muted">{emp.count} claim{emp.count !== 1 ? "s" : ""}</div>
+                        </div>
+                        <div style={{ marginLeft: "auto", fontWeight: 700, fontSize: 14 }}>₹{emp.total.toLocaleString("en-IN")}</div>
+                      </div>
+                    ))}
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 16px", borderRadius: 12,
+                      border: "1px solid var(--red)", background: "var(--red-soft)",
+                      minWidth: 180
+                    }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "var(--red)" }}>Total Event Expenses</div>
+                      <div style={{ marginLeft: "auto", fontWeight: 700, fontSize: 16, color: "var(--red)" }}>₹{grandTotal.toLocaleString("en-IN")}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="table-wrap">
+                <table className="claims-table">
+                  <thead>
+                    <tr>
+                      <th>Filed By</th>
+                      <th>Status</th>
+                      <th>Items</th>
+                      <th>Total Amount</th>
+                      <th>Bill / Receipt</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ev.claims.map((claim) => {
+                      const total = claim.items.reduce((s, i) => s + i.amount, 0);
+                      const statusLabel = claim.status === "ACTIVE" ? "Approved" : claim.status === "INACTIVE" ? "Pending" : claim.status;
+                      const statusClass = claim.status === "ACTIVE" ? "active" : "inactive";
+                      return (
+                        <tr key={claim.id}>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{claim.user.name.charAt(0)}</span>
+                              <div>
+                                <strong>{claim.user.name}</strong>
+                                <div className="muted">{claim.user.designation}</div>
+                              </div>
                             </div>
-                          </div>
-                        </td>
-                        <td><span className={`status-pill ${statusClass}`}>{statusLabel}</span></td>
-                        <td>{claim.items.length} item{claim.items.length !== 1 ? "s" : ""}</td>
-                        <td style={{ fontWeight: 600 }}>₹{total.toLocaleString("en-IN")}</td>
-                        <td>
-                          {claim.attachments && claim.attachments.length > 0 ? (
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {claim.attachments.map((att) => (
-                                isBillImage(att.fileType) ? (
-                                  <button
-                                    key={att.id}
-                                    type="button"
-                                    className="finance-edit-btn"
-                                    disabled={loadingBillPreview}
-                                    onClick={() => openBillUrl(att.fileUrl, "preview")}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                                  >
-                                    {loadingBillPreview ? "⏳" : "🖼"} View
-                                  </button>
-                                ) : (
-                                  <button
-                                    key={att.id}
-                                    type="button"
-                                    className="finance-edit-btn"
-                                    disabled={loadingBillPreview}
-                                    onClick={() => openBillUrl(att.fileUrl, "tab")}
-                                    style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                                  >
-                                    {loadingBillPreview ? "⏳" : "📄"} View PDF
-                                  </button>
-                                )
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
-                        </td>
-                        <td className="muted">{fmt(claim.createdAt)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          </td>
+                          <td><span className={`status-pill ${statusClass}`}>{statusLabel}</span></td>
+                          <td>{claim.items.length} item{claim.items.length !== 1 ? "s" : ""}</td>
+                          <td style={{ fontWeight: 600 }}>₹{total.toLocaleString("en-IN")}</td>
+                          <td>
+                            {claim.attachments && claim.attachments.length > 0 ? (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {claim.attachments.map((att) => (
+                                  isBillImage(att.fileType) ? (
+                                    <button
+                                      key={att.id}
+                                      type="button"
+                                      className="finance-edit-btn"
+                                      disabled={loadingBillPreview}
+                                      onClick={() => openBillUrl(att.fileUrl, "preview")}
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                                    >
+                                      {loadingBillPreview ? "⏳" : "🖼"} View
+                                    </button>
+                                  ) : (
+                                    <button
+                                      key={att.id}
+                                      type="button"
+                                      className="finance-edit-btn"
+                                      disabled={loadingBillPreview}
+                                      onClick={() => openBillUrl(att.fileUrl, "tab")}
+                                      style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                                    >
+                                      {loadingBillPreview ? "⏳" : "📄"} View PDF
+                                    </button>
+                                  )
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td className="muted">{fmt(claim.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: "var(--gray-100)", fontWeight: 700 }}>
+                      <td colSpan={3} style={{ textAlign: "right", paddingRight: 16 }}>Grand Total</td>
+                      <td style={{ color: "var(--red)", fontSize: 15 }}>₹{ev.claims.reduce((sum, c) => sum + c.items.reduce((s, i) => s + i.amount, 0), 0).toLocaleString("en-IN")}</td>
+                      <td />
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </section>
