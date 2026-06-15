@@ -57,14 +57,14 @@ const stageLabel: Record<string, string> = {
   CLOSED_WON: "Closed Won", CLOSED_LOST: "Closed Lost"
 };
 const stageColor: Record<string, string> = {
-  COLD_LEAD: "#64748b", QUALIFICATION: "#3b82f6", NEEDS_ANALYSIS: "#6366f1",
-  VALUE_PROPOSITION: "#8b5cf6", IDENTIFY_DECISION_MAKERS: "#a855f7",
-  PROPOSAL_PRICE_QUOTE: "#d946ef", NEGOTIATION_REVIEW: "#e89b0c",
-  CLOSED_WON: "#16b65f", CLOSED_LOST: "#6b7280"
+  COLD_LEAD: "#b2b2ba", QUALIFICATION: "#9a9aa3", NEEDS_ANALYSIS: "#83838d",
+  VALUE_PROPOSITION: "#6c6c75", IDENTIFY_DECISION_MAKERS: "#565660",
+  PROPOSAL_PRICE_QUOTE: "#3d3d45", NEGOTIATION_REVIEW: "#e1162a",
+  CLOSED_WON: "#0f0f11", CLOSED_LOST: "#c4c4ca"
 };
 const sourceLabel: Record<string, string> = { WEBSITE: "Website", REFERRAL: "Referral", SOCIAL_MEDIA: "Social Media", COLD_CALL: "Cold Call", EVENT: "Event", OTHER: "Other" };
 const leadStatusLabel: Record<string, string> = { NEW: "New", CONTACTED: "Contacted", QUALIFIED: "Qualified", UNQUALIFIED: "Unqualified" };
-const leadStatusColor: Record<string, string> = { NEW: "#3b82f6", CONTACTED: "#e89b0c", QUALIFIED: "#16b65f", UNQUALIFIED: "#6b7280" };
+const leadStatusColor: Record<string, string> = { NEW: "#e1162a", CONTACTED: "#6c6c75", QUALIFIED: "#0f0f11", UNQUALIFIED: "#b2b2ba" };
 
 const fmt = (iso: string) => {
   try { return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }); }

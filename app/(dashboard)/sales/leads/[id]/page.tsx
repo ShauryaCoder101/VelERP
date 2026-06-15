@@ -14,7 +14,7 @@ type Lead = {
 
 const sourceLabel: Record<string, string> = { WEBSITE: "Website", REFERRAL: "Referral", SOCIAL_MEDIA: "Social Media", COLD_CALL: "Cold Call", EVENT: "Event", OTHER: "Other" };
 const statusLabel: Record<string, string> = { NEW: "New", CONTACTED: "Contacted", QUALIFIED: "Qualified", UNQUALIFIED: "Unqualified" };
-const statusColor: Record<string, string> = { NEW: "#3b82f6", CONTACTED: "#e89b0c", QUALIFIED: "#16b65f", UNQUALIFIED: "#6b7280" };
+const statusColor: Record<string, string> = { NEW: "#e1162a", CONTACTED: "#6c6c75", QUALIFIED: "#0f0f11", UNQUALIFIED: "#b2b2ba" };
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -99,7 +99,7 @@ export default function LeadDetailPage() {
                 <button className="btn-primary" type="button" onClick={handleConvert} disabled={saving}>
                   Push to Deal →
                 </button>
-                <button className="btn-outline hover-text" type="button" onClick={handleCloseLost} disabled={saving} style={{ borderColor: "#ef4444", color: "#ef4444" }}>
+                <button className="btn-outline hover-text" type="button" onClick={handleCloseLost} disabled={saving} style={{ borderColor: "var(--red)", color: "var(--red)" }}>
                   Close Lost
                 </button>
               </>

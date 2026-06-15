@@ -31,6 +31,25 @@ export async function POST(request: Request) {
     include: { addedByUser: { select: { id: true, name: true, designation: true } } }
   });
 
+  // Auto-create a cold lead in the Sales section
+  try {
+    await prisma.lead.create({
+      data: {
+        name: body.pocName,
+        company: body.company,
+        email: body.pocEmail || null,
+        phone: body.pocPhone || null,
+        source: "COLD_CALL",
+        status: "NEW",
+        notes: body.remarks || null,
+        assignedTo: null,
+        createdBy: userId
+      }
+    });
+  } catch {
+    // Lead creation is best-effort; don't block the BD call response
+  }
+
   await createNotification(userId, "bd_call", "New BD Call", `${userName} logged a BD call with "${call.company}"`);
   return Response.json(call);
 }

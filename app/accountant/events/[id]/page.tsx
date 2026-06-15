@@ -55,10 +55,10 @@ const paymentModeLabel = (mode: string) => {
 
 const paymentModeColor = (mode: string): string => {
   switch (mode) {
-    case "CREDIT_CARD": return "#8b5cf6";
-    case "DEBIT_CARD": return "#3b82f6";
-    case "UPI": return "#16b65f";
-    default: return "#6b7280";
+    case "CREDIT_CARD": return "#565660";
+    case "DEBIT_CARD": return "#3d3d45";
+    case "UPI": return "#27272b";
+    default: return "#7c7c85";
   }
 };
 
@@ -73,12 +73,12 @@ const phaseLabel = (p: string) => {
 const phaseColor = (p: string): string => {
   const upper = (typeof p === "string" ? p : "").toUpperCase();
   switch (upper) {
-    case "ONGOING": return "#16b65f";
-    case "PREPARATION": return "#e89b0c";
-    case "BIDDING": return "#3b82f6";
-    case "PITCHING": return "#8b5cf6";
-    case "FINISHED": return "#6b7280";
-    default: return "#e1162a";
+    case "ONGOING": return "#e1162a";
+    case "PREPARATION": return "#3d3d45";
+    case "BIDDING": return "#646470";
+    case "PITCHING": return "#8a8a93";
+    case "FINISHED": return "#0f0f11";
+    default: return "#b2b2ba";
   }
 };
 
@@ -378,7 +378,7 @@ export default function AccountantEventDetailPage() {
               <div className="detail-people-list">
                 {ev.vendors.map((v) => (
                   <div key={v.vendor.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3b82f6" }}>{v.vendor.companyName.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3d3d45" }}>{v.vendor.companyName.charAt(0)}</div>
                     <div>
                       <strong>{v.vendor.companyName}</strong>
                       <span className="muted">{v.vendor.work}{v.vendor.location ? ` · ${v.vendor.location}` : ""}</span>
@@ -407,7 +407,7 @@ export default function AccountantEventDetailPage() {
               <div style={{ display: "flex", gap: 20, fontSize: 13 }}>
                 <span>Negotiated: <strong>{cur(totalQuoted)}</strong></span>
                 <span>Paid: <strong>{cur(totalPaidAll)}</strong></span>
-                <span style={{ color: totalBalance > 0 ? "var(--red)" : "#16b65f" }}>
+                <span style={{ color: totalBalance > 0 ? "var(--red)" : "var(--black)" }}>
                   Balance: <strong>{cur(totalBalance)}</strong>
                 </span>
               </div>
@@ -635,7 +635,7 @@ export default function AccountantEventDetailPage() {
 
             <div style={{ background: "var(--gray-100)", padding: "10px 14px", borderRadius: 10, marginTop: 4 }}>
               <span className="muted">To Be Done: </span>
-              <strong style={{ color: (financeForm.quotedAmount - financeForm.totalPaid) > 0 ? "var(--red)" : "#16b65f" }}>
+              <strong style={{ color: (financeForm.quotedAmount - financeForm.totalPaid) > 0 ? "var(--red)" : "var(--black)" }}>
                 {cur(Math.max(0, financeForm.quotedAmount - financeForm.totalPaid))}
               </strong>
             </div>

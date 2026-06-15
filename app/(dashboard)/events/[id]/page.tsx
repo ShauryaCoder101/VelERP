@@ -83,12 +83,12 @@ const phaseLabel = (p: string) => {
 const phaseColor = (p: string): string => {
   const upper = (typeof p === "string" ? p : "").toUpperCase();
   switch (upper) {
-    case "ONGOING": return "#16b65f";
-    case "PREPARATION": return "#e89b0c";
-    case "BIDDING": return "#3b82f6";
-    case "PITCHING": return "#8b5cf6";
-    case "FINISHED": return "#6b7280";
-    default: return "#e1162a";
+    case "ONGOING": return "#e1162a";
+    case "PREPARATION": return "#3d3d45";
+    case "BIDDING": return "#646470";
+    case "PITCHING": return "#8a8a93";
+    case "FINISHED": return "#0f0f11";
+    default: return "#b2b2ba";
   }
 };
 
@@ -491,7 +491,24 @@ export default function EventDetailPage() {
               style={{ padding: "6px 14px", color: "var(--red)", borderColor: "var(--red)" }}>Delete Event</button>
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
-            <span className="phase-pill" style={{ background: `${color}18`, color }}>{phase}</span>
+            <select
+              className="input select"
+              value={ev.phase}
+              style={{ width: "auto", padding: "6px 12px", borderRadius: 999, fontWeight: 600, fontSize: 13 }}
+              onChange={async (e) => {
+                const newPhase = e.target.value;
+                await fetch(`/api/events/${ev.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ phase: newPhase })
+                });
+                loadEvent();
+              }}
+            >
+              {["IDEATION", "PITCHING", "BIDDING", "PREPARATION", "ONGOING", "FINISHED"].map((p) => (
+                <option key={p} value={p}>{phaseLabel(p)}</option>
+              ))}
+            </select>
 
             <input ref={costSheetRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx" style={{ display: "none" }}
               onChange={(e) => e.target.files?.[0] && handleSheetUpload(e.target.files[0], "cost-sheet")} />
@@ -568,7 +585,7 @@ export default function EventDetailPage() {
               <div className="detail-people-list">
                 {ev.vendors.map((v) => (
                   <div key={v.vendor.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3b82f6" }}>{v.vendor.companyName.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3d3d45" }}>{v.vendor.companyName.charAt(0)}</div>
                     <div>
                       <strong>{v.vendor.companyName}</strong>
                       <span className="muted">{v.vendor.work}{v.vendor.location ? ` · ${v.vendor.location}` : ""}</span>
@@ -593,7 +610,7 @@ export default function EventDetailPage() {
               <div className="detail-people-list">
                 {ev.artists.map((a) => (
                   <div key={a.artist.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#8b5cf6" }}>{a.artist.name.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#565660" }}>{a.artist.name.charAt(0)}</div>
                     <div>
                       <strong>{a.artist.name}</strong>
                       <span className="muted">{a.artist.category}{a.artist.location ? ` · ${a.artist.location}` : ""}</span>
@@ -620,7 +637,7 @@ export default function EventDetailPage() {
               <div style={{ display: "flex", gap: 20, fontSize: 13 }}>
                 <span>Negotiated: <strong>{cur(totalQuoted)}</strong></span>
                 <span>Paid: <strong>{cur(totalPaidAll)}</strong></span>
-                <span style={{ color: totalBalance > 0 ? "var(--red)" : "#16b65f" }}>
+                <span style={{ color: totalBalance > 0 ? "var(--red)" : "var(--black)" }}>
                   Balance: <strong>{cur(totalBalance)}</strong>
                 </span>
               </div>
@@ -891,7 +908,7 @@ export default function EventDetailPage() {
                   <div className="detail-people-list">
                     {otherFiles.map((f) => (
                       <a key={f.id} href={f.fileUrl} target="_blank" rel="noopener noreferrer" className="detail-person-card hover-text">
-                        <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#6b7280" }}>
+                        <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#b2b2ba" }}>
                           {f.fileType.split("/")[1]?.slice(0, 3).toUpperCase() ?? "FILE"}
                         </div>
                         <div>
@@ -923,7 +940,7 @@ export default function EventDetailPage() {
           {ev.closingSheetUrl ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div className="detail-person-card" style={{ flex: 1 }}>
-                <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#16b65f" }}>✓</div>
+                <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#0f0f11" }}>✓</div>
                 <div>
                   <strong>Closing sheet uploaded</strong>
                   <span className="muted">This event has been marked as Finished.</span>
@@ -1073,7 +1090,7 @@ export default function EventDetailPage() {
 
             <div style={{ background: "var(--gray-100)", padding: "10px 14px", borderRadius: 10, marginTop: 4 }}>
               <span className="muted">To Be Done: </span>
-              <strong style={{ color: (financeForm.quotedAmount - financeForm.totalPaid) > 0 ? "var(--red)" : "#16b65f" }}>
+              <strong style={{ color: (financeForm.quotedAmount - financeForm.totalPaid) > 0 ? "var(--red)" : "var(--black)" }}>
                 {cur(Math.max(0, financeForm.quotedAmount - financeForm.totalPaid))}
               </strong>
             </div>

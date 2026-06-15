@@ -30,8 +30,8 @@ const PHASE_LABELS: Record<string, string> = {
   PITCHING: "Pitching", IDEATION: "Ideation", FINISHED: "Finished"
 };
 const PHASE_COLORS: Record<string, string> = {
-  ONGOING: "#16b65f", PREPARATION: "#e89b0c", BIDDING: "#3b82f6",
-  PITCHING: "#8b5cf6", IDEATION: "#e1162a", FINISHED: "#6b7280"
+  ONGOING: "#e1162a", PREPARATION: "#3d3d45", BIDDING: "#646470",
+  PITCHING: "#8a8a93", IDEATION: "#b2b2ba", FINISHED: "#0f0f11"
 };
 const ALL_PHASES = ["IDEATION", "PITCHING", "BIDDING", "PREPARATION", "ONGOING", "FINISHED"];
 

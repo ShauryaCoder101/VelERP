@@ -25,9 +25,9 @@ const stageLabel: Record<string, string> = {
   CLOSED_WON: "Closed Won", CLOSED_LOST: "Closed Lost"
 };
 const stageColor: Record<string, string> = {
-  QUALIFICATION: "#3b82f6", NEEDS_ANALYSIS: "#6366f1", VALUE_PROPOSITION: "#8b5cf6",
-  IDENTIFY_DECISION_MAKERS: "#a855f7", PROPOSAL_PRICE_QUOTE: "#d946ef",
-  NEGOTIATION_REVIEW: "#e89b0c", CLOSED_WON: "#16b65f", CLOSED_LOST: "#6b7280"
+  QUALIFICATION: "#9a9aa3", NEEDS_ANALYSIS: "#83838d", VALUE_PROPOSITION: "#6c6c75",
+  IDENTIFY_DECISION_MAKERS: "#565660", PROPOSAL_PRICE_QUOTE: "#3d3d45",
+  NEGOTIATION_REVIEW: "#e1162a", CLOSED_WON: "#0f0f11", CLOSED_LOST: "#c4c4ca"
 };
 
 const fmt = (iso: string) => {
@@ -135,10 +135,10 @@ export default function DealDetailPage() {
             )}
             {!isClosed && (
               <>
-                <button className="btn-outline hover-text" type="button" onClick={handleCloseWon} disabled={saving} style={{ borderColor: "#16b65f", color: "#16b65f" }}>
+                <button className="btn-outline hover-text" type="button" onClick={handleCloseWon} disabled={saving} style={{ borderColor: "#0f0f11", color: "#0f0f11" }}>
                   Close Won
                 </button>
-                <button className="btn-outline hover-text" type="button" onClick={handleCloseLost} disabled={saving} style={{ borderColor: "#ef4444", color: "#ef4444" }}>
+                <button className="btn-outline hover-text" type="button" onClick={handleCloseLost} disabled={saving} style={{ borderColor: "var(--red)", color: "var(--red)" }}>
                   Close Lost
                 </button>
               </>
@@ -146,7 +146,7 @@ export default function DealDetailPage() {
             <button className="btn-outline hover-text" type="button" onClick={() => { setReassignTo(deal.assignedTo || ""); setReassignOpen(true); }}>
               Reassign
             </button>
-            <button className="btn-outline hover-text" type="button" onClick={handleDelete} style={{ borderColor: "#ef4444", color: "#ef4444" }}>
+            <button className="btn-outline hover-text" type="button" onClick={handleDelete} style={{ borderColor: "var(--red)", color: "var(--red)" }}>
               Delete
             </button>
           </div>

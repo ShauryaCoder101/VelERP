@@ -17,10 +17,11 @@ const stageLabel: Record<string, string> = {
   VALUE_PROPOSITION: "Value Proposition", IDENTIFY_DECISION_MAKERS: "Decision Makers",
   PROPOSAL_PRICE_QUOTE: "Proposal/Quote", NEGOTIATION_REVIEW: "Negotiation"
 };
+// Monochrome stage ramp (darkening = further along); red marks the hot closing stage.
 const stageColor: Record<string, string> = {
-  QUALIFICATION: "#3b82f6", NEEDS_ANALYSIS: "#6366f1", VALUE_PROPOSITION: "#8b5cf6",
-  IDENTIFY_DECISION_MAKERS: "#a855f7", PROPOSAL_PRICE_QUOTE: "#d946ef",
-  NEGOTIATION_REVIEW: "#e89b0c"
+  QUALIFICATION: "#9a9aa3", NEEDS_ANALYSIS: "#7c7c85", VALUE_PROPOSITION: "#565660",
+  IDENTIFY_DECISION_MAKERS: "#3d3d45", PROPOSAL_PRICE_QUOTE: "#27272b",
+  NEGOTIATION_REVIEW: "#e1162a"
 };
 
 type DashboardStats = {
@@ -30,11 +31,50 @@ type DashboardStats = {
   teamMembers: number;
 };
 
+const sw = 1.8;
+const iconProps = {
+  width: 22, height: 22, viewBox: "0 0 24 24", fill: "none",
+  stroke: "currentColor", strokeWidth: sw, strokeLinecap: "round" as const, strokeLinejoin: "round" as const
+};
 const statsCardsMeta = [
-  { key: "totalEvents" as const, title: "Total Events", color: "#3b82f6", icon: "📅" },
-  { key: "activeVendors" as const, title: "Active Vendors", color: "#16b65f", icon: "🏢" },
-  { key: "pendingClaims" as const, title: "Pending Claims", color: "#e89b0c", icon: "📋" },
-  { key: "teamMembers" as const, title: "Team Members", color: "#8b5cf6", icon: "👥" }
+  {
+    key: "totalEvents" as const, title: "Total Events",
+    icon: (
+      <svg {...iconProps}>
+        <rect x="3" y="4" width="18" height="18" rx="2" />
+        <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    )
+  },
+  {
+    key: "activeVendors" as const, title: "Active Vendors",
+    icon: (
+      <svg {...iconProps}>
+        <path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-6h6v6" />
+        <line x1="10" y1="9" x2="10" y2="9.01" /><line x1="14" y1="9" x2="14" y2="9.01" />
+      </svg>
+    )
+  },
+  {
+    key: "pendingClaims" as const, title: "Pending Claims",
+    icon: (
+      <svg {...iconProps}>
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="9" y1="13" x2="15" y2="13" /><line x1="9" y1="17" x2="15" y2="17" />
+      </svg>
+    )
+  },
+  {
+    key: "teamMembers" as const, title: "Team Members",
+    icon: (
+      <svg {...iconProps}>
+        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" />
+      </svg>
+    )
+  }
 ];
 
 const quickActions = ["Create Event", "Add Vendor", "File Claim", "Upload Files"];
@@ -138,7 +178,7 @@ export default function DashboardPage() {
           <section className="stats-grid">
             {statsCardsMeta.map((card) => (
               <div key={card.title} className="stat-card">
-                <div className="stat-icon" aria-hidden="true" style={{ fontSize: 22 }}>{card.icon}</div>
+                <div className="stat-icon" aria-hidden="true">{card.icon}</div>
                 <div className="stat-content">
                   <div className="stat-value">{stats ? stats[card.key] : "—"}</div>
                   <div className="stat-label">{card.title}</div>
