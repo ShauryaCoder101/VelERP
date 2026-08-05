@@ -83,12 +83,12 @@ const phaseLabel = (p: string) => {
 const phaseColor = (p: string): string => {
   const upper = (typeof p === "string" ? p : "").toUpperCase();
   switch (upper) {
-    case "ONGOING": return "#e1162a";
-    case "PREPARATION": return "#3d3d45";
-    case "BIDDING": return "#646470";
-    case "PITCHING": return "#8a8a93";
-    case "FINISHED": return "#0f0f11";
-    default: return "#b2b2ba";
+    case "ONGOING": return "#ed3039";
+    case "PREPARATION": return "#42424a";
+    case "BIDDING": return "#5c5c66";
+    case "PITCHING": return "#82828c";
+    case "FINISHED": return "#0f0f12";
+    default: return "#b6b6bd";
   }
 };
 
@@ -585,7 +585,7 @@ export default function EventDetailPage() {
               <div className="detail-people-list">
                 {ev.vendors.map((v) => (
                   <div key={v.vendor.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3d3d45" }}>{v.vendor.companyName.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#42424a" }}>{v.vendor.companyName.charAt(0)}</div>
                     <div>
                       <strong>{v.vendor.companyName}</strong>
                       <span className="muted">{v.vendor.work}{v.vendor.location ? ` · ${v.vendor.location}` : ""}</span>
@@ -610,7 +610,7 @@ export default function EventDetailPage() {
               <div className="detail-people-list">
                 {ev.artists.map((a) => (
                   <div key={a.artist.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#565660" }}>{a.artist.name.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#5c5c66" }}>{a.artist.name.charAt(0)}</div>
                     <div>
                       <strong>{a.artist.name}</strong>
                       <span className="muted">{a.artist.category}{a.artist.location ? ` · ${a.artist.location}` : ""}</span>
@@ -908,7 +908,7 @@ export default function EventDetailPage() {
                   <div className="detail-people-list">
                     {otherFiles.map((f) => (
                       <a key={f.id} href={f.fileUrl} target="_blank" rel="noopener noreferrer" className="detail-person-card hover-text">
-                        <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#b2b2ba" }}>
+                        <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#b6b6bd" }}>
                           {f.fileType.split("/")[1]?.slice(0, 3).toUpperCase() ?? "FILE"}
                         </div>
                         <div>
@@ -940,7 +940,7 @@ export default function EventDetailPage() {
           {ev.closingSheetUrl ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div className="detail-person-card" style={{ flex: 1 }}>
-                <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#0f0f11" }}>✓</div>
+                <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#0f0f12" }}>✓</div>
                 <div>
                   <strong>Closing sheet uploaded</strong>
                   <span className="muted">This event has been marked as Finished.</span>

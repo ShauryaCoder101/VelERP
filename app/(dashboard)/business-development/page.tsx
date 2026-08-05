@@ -16,7 +16,7 @@ type BdCall = {
 
 const BD_STATUSES = ["FOLLOWUP", "LEAD", "DORMANT", "ACTIVE"] as const;
 const statusLabel: Record<string, string> = { FOLLOWUP: "Follow Up", LEAD: "Lead", DORMANT: "Dormant", ACTIVE: "Active" };
-const statusColor: Record<string, string> = { FOLLOWUP: "#e1162a", LEAD: "#7c7c85", DORMANT: "#b2b2ba", ACTIVE: "#0f0f11" };
+const statusColor: Record<string, string> = { FOLLOWUP: "#ed3039", LEAD: "#82828c", DORMANT: "#b6b6bd", ACTIVE: "#0f0f12" };
 
 const fmt = (iso: string) => {
   try { return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }); }

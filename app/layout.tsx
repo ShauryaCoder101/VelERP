@@ -1,16 +1,41 @@
 import "./globals.css";
 import type { ReactNode } from "react";
-import { Inter } from "next/font/google";
+import { IBM_Plex_Sans, IBM_Plex_Serif, IBM_Plex_Mono } from "next/font/google";
 
-const inter = Inter({
+/* Three registers of one superfamily: sans for interface, serif for headings,
+   mono for figures. Shared skeleton, so they set together without clashing.
+   Self-hosted by next/font — no third-party request on first paint. */
+
+const sans = IBM_Plex_Sans({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   display: "swap",
   variable: "--font-sans"
 });
 
+const serif = IBM_Plex_Serif({
+  subsets: ["latin"],
+  weight: ["600"],
+  display: "swap",
+  variable: "--font-serif"
+});
+
+const mono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["500"],
+  display: "swap",
+  variable: "--font-mono"
+});
+
 export const metadata = {
-  title: "Velocity Brand Server Pvt. Ltd. - Event Management ERP",
-  description: "ERP dashboard layout for an event management firm."
+  title: "Velocity ERP",
+  description: "Operations, sales and finance system for Velocity Brand Server Pvt. Ltd."
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#ffffff"
 };
 
 type RootLayoutProps = {
@@ -19,7 +44,7 @@ type RootLayoutProps = {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${sans.variable} ${serif.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );

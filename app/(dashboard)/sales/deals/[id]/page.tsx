@@ -25,9 +25,9 @@ const stageLabel: Record<string, string> = {
   CLOSED_WON: "Closed Won", CLOSED_LOST: "Closed Lost"
 };
 const stageColor: Record<string, string> = {
-  QUALIFICATION: "#9a9aa3", NEEDS_ANALYSIS: "#83838d", VALUE_PROPOSITION: "#6c6c75",
-  IDENTIFY_DECISION_MAKERS: "#565660", PROPOSAL_PRICE_QUOTE: "#3d3d45",
-  NEGOTIATION_REVIEW: "#e1162a", CLOSED_WON: "#0f0f11", CLOSED_LOST: "#c4c4ca"
+  QUALIFICATION: "#9a9aa3", NEEDS_ANALYSIS: "#82828c", VALUE_PROPOSITION: "#6b6b75",
+  IDENTIFY_DECISION_MAKERS: "#5c5c66", PROPOSAL_PRICE_QUOTE: "#42424a",
+  NEGOTIATION_REVIEW: "#ed3039", CLOSED_WON: "#0f0f12", CLOSED_LOST: "#dcdce0"
 };
 
 const fmt = (iso: string) => {
@@ -135,7 +135,7 @@ export default function DealDetailPage() {
             )}
             {!isClosed && (
               <>
-                <button className="btn-outline hover-text" type="button" onClick={handleCloseWon} disabled={saving} style={{ borderColor: "#0f0f11", color: "#0f0f11" }}>
+                <button className="btn-outline hover-text" type="button" onClick={handleCloseWon} disabled={saving} style={{ borderColor: "#0f0f12", color: "#0f0f12" }}>
                   Close Won
                 </button>
                 <button className="btn-outline hover-text" type="button" onClick={handleCloseLost} disabled={saving} style={{ borderColor: "var(--red)", color: "var(--red)" }}>

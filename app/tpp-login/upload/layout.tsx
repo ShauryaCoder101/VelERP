@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getSessionUser } from "../../../lib/session";
+import Wordmark from "../../components/Wordmark";
+import SignOutButton from "../../components/SignOutButton";
 
 type UploadLayoutProps = {
   children: ReactNode;
@@ -25,7 +27,17 @@ export default async function UploadLayout({ children }: UploadLayoutProps) {
 
   return (
     <div className="auth-page">
-      <div className="auth-card upload-card">{children}</div>
+      <div className="auth-card upload-card">
+        <div className="auth-brand upload-brand">
+          <Wordmark />
+          <span className="upload-user">{user.name}</span>
+        </div>
+        {children}
+        <div className="auth-foot">
+          <SignOutButton />
+          <span className="muted">Files are stored privately.</span>
+        </div>
+      </div>
     </div>
   );
 }

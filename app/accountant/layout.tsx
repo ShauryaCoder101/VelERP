@@ -1,13 +1,31 @@
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import AccountantSidebar from "../components/AccountantSidebar";
-import TopbarActions from "../components/TopbarActions";
+import AppShell from "../components/AppShell";
 import { getSessionUser } from "../../lib/session";
+import type { NavGroup } from "../../lib/navigation";
 
 type AccountantLayoutProps = {
   children: ReactNode;
 };
+
+const ACCOUNTANT_NAV: NavGroup[] = [
+  {
+    label: "Operations",
+    links: [
+      { label: "Dashboard", href: "/accountant", minLevel: 3, icon: "dashboard" },
+      { label: "Events", href: "/accountant/events", minLevel: 3, icon: "events" },
+      { label: "Vendor Management", href: "/accountant/vendor-management", minLevel: 3, icon: "vendors" }
+    ]
+  },
+  {
+    label: "Finance",
+    links: [
+      { label: "Expense Management", href: "/accountant/claim-management", minLevel: 3, icon: "expenses" },
+      { label: "Finance", href: "/accountant/finance", minLevel: 3, icon: "finance" }
+    ]
+  }
+];
 
 export default async function AccountantLayout({ children }: AccountantLayoutProps) {
   const cookieStore = await cookies();
@@ -30,36 +48,5 @@ export default async function AccountantLayout({ children }: AccountantLayoutPro
     redirect("/");
   }
 
-  return (
-    <div className="dashboard">
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
-        </div>
-        <AccountantSidebar />
-      </aside>
-
-      <div className="main">
-        <header className="topbar">
-          <div className="brand">
-            <img className="logo-image logo-topbar" src="/velocity-logo.png" alt="Velocity Logo" />
-          </div>
-          <TopbarActions />
-        </header>
-
-        <main className="content">{children}</main>
-
-        <footer className="footer">
-          <div className="footer-brand">
-            <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
-          </div>
-          <div className="footer-contact">
-            <span>contact@velocityindia.net</span>
-            <span>+91 9319713708</span>
-          </div>
-          <div className="footer-copy">© 2026 Velocity Brand Server Pvt. Ltd. All rights reserved.</div>
-        </footer>
-      </div>
-    </div>
-  );
+  return <AppShell groups={ACCOUNTANT_NAV}>{children}</AppShell>;
 }

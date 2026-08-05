@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Wordmark from "../components/Wordmark";
 
 export default function TppLoginPage() {
   const [email, setEmail] = useState("");
@@ -34,11 +35,11 @@ export default function TppLoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="brand">
-          <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
+        <div className="auth-brand">
+          <Wordmark />
         </div>
-        <h1>Photographer Uploads</h1>
-        <p className="muted">Sign in to upload event photos.</p>
+        <h1>Photographer uploads</h1>
+        <p className="muted">Sign in to upload event photos and video.</p>
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="auth-label" htmlFor="email">
             Email
@@ -64,9 +65,9 @@ export default function TppLoginPage() {
             placeholder="••••••••"
             required
           />
-          {error ? <div className="auth-error">{error}</div> : null}
-          <button className="btn-primary" type="submit">
-            Login
+          {error ? <div className="auth-error" role="alert">{error}</div> : null}
+          <button className="btn-primary auth-submit" type="submit">
+            Sign in
           </button>
         </form>
       </div>

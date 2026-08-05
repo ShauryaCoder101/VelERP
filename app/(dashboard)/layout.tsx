@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import SidebarNav from "../components/SidebarNav";
-import TopbarActions from "../components/TopbarActions";
+import AppShell from "../components/AppShell";
 import { getSessionUser } from "../../lib/session";
+import { NAV_GROUPS } from "../../lib/navigation";
+import { hasAccess, normalizeRole } from "../../lib/rbac";
 
 type DashboardLayoutProps = {
   children: ReactNode;
@@ -30,36 +31,11 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     redirect("/tpp-login/upload");
   }
 
-  return (
-    <div className="dashboard">
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
-        </div>
-        <SidebarNav />
-      </aside>
+  const role = normalizeRole(user.role);
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    links: group.links.filter((link) => hasAccess(role, link.minLevel))
+  })).filter((group) => group.links.length > 0);
 
-      <div className="main">
-        <header className="topbar">
-          <div className="brand">
-            <img className="logo-image logo-topbar" src="/velocity-logo.png" alt="Velocity Logo" />
-          </div>
-          <TopbarActions />
-        </header>
-
-        <main className="content">{children}</main>
-
-        <footer className="footer">
-          <div className="footer-brand">
-            <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
-          </div>
-          <div className="footer-contact">
-            <span>contact@velocityindia.net</span>
-            <span>+91 9319713708</span>
-          </div>
-          <div className="footer-copy">© 2026 Velocity Brand Server Pvt. Ltd. All rights reserved.</div>
-        </footer>
-      </div>
-    </div>
-  );
+  return <AppShell groups={groups}>{children}</AppShell>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type EventOption = {
   id: string;
@@ -9,117 +9,232 @@ type EventOption = {
   phase: string;
 };
 
+type ItemStatus = "queued" | "uploading" | "done" | "error";
+
+type Item = {
+  id: string;
+  file: File;
+  status: ItemStatus;
+  pct: number;
+  error?: string;
+};
+
+const formatBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+/* The browser must send exactly the Content-Type the URL was signed for,
+   or S3 rejects the PUT. Some cameras hand us files with an empty type,
+   so both sides agree on this fallback. */
+const contentTypeOf = (file: File) => file.type || "application/octet-stream";
+
+/* fetch() cannot report upload progress; XHR can. For multi-gigabyte video
+   that difference is the whole experience. */
+const putToS3 = (url: string, file: File, onProgress: (pct: number) => void) =>
+  new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentTypeOf(file));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Storage refused the file (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Network error reaching storage"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.send(file);
+  });
+
 export default function PhotographerUploadPage() {
   const [events, setEvents] = useState<EventOption[]>([]);
   const [eventId, setEventId] = useState("");
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [status, setStatus] = useState("");
+  const [items, setItems] = useState<Item[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    const loadEvents = async () => {
-      const response = await fetch("/api/events");
-      if (!response.ok) return;
-      const data = await response.json();
-      setEvents(
-        data.map((eventItem: any) => ({
-          id: eventItem.id,
-          eventName: eventItem.eventName,
-          companyName: eventItem.companyName,
-          phase: eventItem.phase
-        }))
-      );
-    };
-    loadEvents();
+    fetch("/api/events")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) =>
+        setEvents(
+          (Array.isArray(data) ? data : []).map((e: any) => ({
+            id: e.id,
+            eventName: e.eventName,
+            companyName: e.companyName,
+            phase: e.phase
+          }))
+        )
+      )
+      .catch(() => setNotice("Could not load the event list. Reload the page to try again."));
   }, []);
 
-  const handleUpload = async () => {
-    if (!eventId || selectedFiles.length === 0) {
-      setStatus("Select an event and files to upload.");
-      return;
-    }
-    setStatus("Uploading...");
-    for (const file of selectedFiles) {
-      const presignRes = await fetch("/api/uploads/presign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          eventId,
-          fileName: file.name,
-          fileType: file.type
-        })
-      });
-      if (!presignRes.ok) {
-        setStatus("Upload failed. Please try again.");
-        return;
-      }
-      const { uploadUrl, fileUrl } = await presignRes.json();
+  const totalBytes = useMemo(() => items.reduce((s, i) => s + i.file.size, 0), [items]);
+  const pending = items.filter((i) => i.status === "queued" || i.status === "error");
+  const doneCount = items.filter((i) => i.status === "done").length;
 
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file
-      });
-      if (!uploadRes.ok) {
-        setStatus("Upload failed. Please try again.");
-        return;
-      }
-
-      const recordRes = await fetch("/api/uploads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          eventId,
-          fileUrl,
-          fileType: file.type
-        })
-      });
-      if (!recordRes.ok) {
-        setStatus("Upload failed. Please try again.");
-        return;
-      }
-    }
-    setStatus("Upload recorded.");
-    setSelectedFiles([]);
+  const addFiles = (files: FileList | null) => {
+    if (!files) return;
+    setNotice("");
+    setItems((prev) => [
+      ...prev,
+      ...Array.from(files).map((file, i) => ({
+        id: `${Date.now()}-${i}-${file.name}`,
+        file,
+        status: "queued" as ItemStatus,
+        pct: 0
+      }))
+    ]);
   };
 
+  const removeItem = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
+
+  const patch = (id: string, next: Partial<Item>) =>
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...next } : i)));
+
+  const handleUpload = async () => {
+    if (!eventId) {
+      setNotice("Choose the event these files belong to.");
+      return;
+    }
+    if (pending.length === 0) {
+      setNotice("Add some photos or video first.");
+      return;
+    }
+
+    setBusy(true);
+    setNotice("");
+    let failures = 0;
+
+    // One bad file must not strand the rest of the shoot.
+    for (const item of pending) {
+      patch(item.id, { status: "uploading", pct: 0, error: undefined });
+      try {
+        const presignRes = await fetch("/api/uploads/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            eventId,
+            fileName: item.file.name,
+            fileType: contentTypeOf(item.file)
+          })
+        });
+        if (!presignRes.ok) throw new Error("Could not get an upload link");
+
+        const { uploadUrl, fileUrl } = await presignRes.json();
+        await putToS3(uploadUrl, item.file, (pct) => patch(item.id, { pct }));
+
+        const recordRes = await fetch("/api/uploads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId, fileUrl, fileType: contentTypeOf(item.file) })
+        });
+        if (!recordRes.ok) throw new Error("Uploaded, but could not be recorded");
+
+        patch(item.id, { status: "done", pct: 100 });
+      } catch (err) {
+        failures += 1;
+        patch(item.id, { status: "error", error: err instanceof Error ? err.message : "Upload failed" });
+      }
+    }
+
+    setBusy(false);
+    setNotice(
+      failures === 0
+        ? `${pending.length} file${pending.length !== 1 ? "s" : ""} uploaded.`
+        : `${pending.length - failures} uploaded, ${failures} failed. Press Upload again to retry the failures.`
+    );
+  };
+
+  const selectedEvent = events.find((e) => e.id === eventId);
+
   return (
-    <div className="upload-form">
-      <h1>Upload Event Photos</h1>
-      <p className="muted">Select an event and upload photo files.</p>
+    <>
+      <div className="page-header">
+        <h1>Upload event media</h1>
+        <p>Photos and video go straight to Velocity&apos;s secure storage.</p>
+      </div>
 
-      <label className="auth-label" htmlFor="photo-event">
-        Event
-      </label>
-      <select
-        id="photo-event"
-        className="input select"
-        value={eventId}
-        onChange={(event) => setEventId(event.target.value)}
-      >
-        <option value="">Select event</option>
-        {events.map((eventItem) => (
-          <option key={eventItem.id} value={eventItem.id}>
-            {eventItem.eventName} ({eventItem.companyName})
-          </option>
-        ))}
-      </select>
+      <div className="upload-form">
+        <label className="auth-label" htmlFor="photo-event">Event</label>
+        <select
+          id="photo-event"
+          className="input select"
+          value={eventId}
+          disabled={busy}
+          onChange={(e) => setEventId(e.target.value)}
+        >
+          <option value="">Choose an event</option>
+          {events.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.eventName} — {e.companyName}
+            </option>
+          ))}
+        </select>
+        {selectedEvent && <span className="cell-meta">Filing under {selectedEvent.companyName}</span>}
 
-      <label className="auth-label" htmlFor="photo-file">
-        Photos
-      </label>
-      <input
-        id="photo-file"
-        className="input-file"
-        type="file"
-        multiple
-        onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
-      />
+        <label className="auth-label" htmlFor="photo-file">Photos &amp; video</label>
+        <input
+          id="photo-file"
+          className="input-file"
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          disabled={busy}
+          onChange={(e) => {
+            addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
 
-      {status ? <div className="muted">{status}</div> : null}
+        {items.length > 0 && (
+          <div className="uploader-list">
+            <div className="uploader-list-head">
+              <span>{items.length} file{items.length !== 1 ? "s" : ""} · {formatBytes(totalBytes)}</span>
+              {doneCount > 0 && <span>{doneCount} uploaded</span>}
+            </div>
+            {items.map((item) => (
+              <div key={item.id} className={`uploader-row uploader-${item.status}`}>
+                <span className="uploader-name" title={item.file.name}>{item.file.name}</span>
+                <span className="uploader-size">{formatBytes(item.file.size)}</span>
+                <span className="uploader-state">
+                  {item.status === "queued" && "Queued"}
+                  {item.status === "uploading" && `${item.pct}%`}
+                  {item.status === "done" && "Uploaded"}
+                  {item.status === "error" && (item.error ?? "Failed")}
+                </span>
+                {item.status === "uploading" ? (
+                  <span className="uploader-bar"><span style={{ width: `${item.pct}%` }} /></span>
+                ) : (
+                  <button
+                    className="row-remove"
+                    type="button"
+                    aria-label={`Remove ${item.file.name}`}
+                    disabled={busy}
+                    onClick={() => removeItem(item.id)}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-      <button className="btn-primary" type="button" onClick={handleUpload}>
-        Upload
-      </button>
-    </div>
+        {notice && <div className="muted">{notice}</div>}
+
+        <button className="btn-primary auth-submit" type="button" onClick={handleUpload} disabled={busy}>
+          {busy
+            ? "Uploading…"
+            : pending.length > 0
+              ? `Upload ${pending.length} file${pending.length !== 1 ? "s" : ""}`
+              : "Upload"}
+        </button>
+      </div>
+    </>
   );
 }

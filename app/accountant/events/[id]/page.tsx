@@ -55,10 +55,10 @@ const paymentModeLabel = (mode: string) => {
 
 const paymentModeColor = (mode: string): string => {
   switch (mode) {
-    case "CREDIT_CARD": return "#565660";
-    case "DEBIT_CARD": return "#3d3d45";
-    case "UPI": return "#27272b";
-    default: return "#7c7c85";
+    case "CREDIT_CARD": return "#5c5c66";
+    case "DEBIT_CARD": return "#42424a";
+    case "UPI": return "#2a2a30";
+    default: return "#82828c";
   }
 };
 
@@ -73,12 +73,12 @@ const phaseLabel = (p: string) => {
 const phaseColor = (p: string): string => {
   const upper = (typeof p === "string" ? p : "").toUpperCase();
   switch (upper) {
-    case "ONGOING": return "#e1162a";
-    case "PREPARATION": return "#3d3d45";
-    case "BIDDING": return "#646470";
-    case "PITCHING": return "#8a8a93";
-    case "FINISHED": return "#0f0f11";
-    default: return "#b2b2ba";
+    case "ONGOING": return "#ed3039";
+    case "PREPARATION": return "#42424a";
+    case "BIDDING": return "#5c5c66";
+    case "PITCHING": return "#82828c";
+    case "FINISHED": return "#0f0f12";
+    default: return "#b6b6bd";
   }
 };
 
@@ -378,7 +378,7 @@ export default function AccountantEventDetailPage() {
               <div className="detail-people-list">
                 {ev.vendors.map((v) => (
                   <div key={v.vendor.id} className="detail-person-card">
-                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#3d3d45" }}>{v.vendor.companyName.charAt(0)}</div>
+                    <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#42424a" }}>{v.vendor.companyName.charAt(0)}</div>
                     <div>
                       <strong>{v.vendor.companyName}</strong>
                       <span className="muted">{v.vendor.work}{v.vendor.location ? ` · ${v.vendor.location}` : ""}</span>

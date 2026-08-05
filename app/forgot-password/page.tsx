@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Wordmark from "../components/Wordmark";
 
 type Step = "email" | "otp" | "done";
 
@@ -66,7 +67,7 @@ export default function ForgotPasswordPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-brand">
-          <img className="logo-image" src="/velocity-logo.png" alt="Velocity Logo" />
+          <Wordmark />
         </div>
 
         {step === "email" && (

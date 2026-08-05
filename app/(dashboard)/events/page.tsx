@@ -30,8 +30,8 @@ const PHASE_LABELS: Record<string, string> = {
   PITCHING: "Pitching", IDEATION: "Ideation", FINISHED: "Finished"
 };
 const PHASE_COLORS: Record<string, string> = {
-  ONGOING: "#e1162a", PREPARATION: "#3d3d45", BIDDING: "#646470",
-  PITCHING: "#8a8a93", IDEATION: "#b2b2ba", FINISHED: "#0f0f11"
+  ONGOING: "#ed3039", PREPARATION: "#42424a", BIDDING: "#5c5c66",
+  PITCHING: "#82828c", IDEATION: "#b6b6bd", FINISHED: "#0f0f12"
 };
 const ALL_PHASES = ["IDEATION", "PITCHING", "BIDDING", "PREPARATION", "ONGOING", "FINISHED"];
 
@@ -198,7 +198,7 @@ export default function EventsPage() {
           {PHASE_ORDER.map((phase) => {
             const cards = grouped[phase];
             if (!cards || cards.length === 0) return null;
-            const color = PHASE_COLORS[phase] ?? "#e1162a";
+            const color = PHASE_COLORS[phase] ?? "#ed3039";
             return (
               <section key={phase} className="phase-section">
                 <div className="phase-section-header">

@@ -14,7 +14,7 @@ type Lead = {
 
 const sourceLabel: Record<string, string> = { WEBSITE: "Website", REFERRAL: "Referral", SOCIAL_MEDIA: "Social Media", COLD_CALL: "Cold Call", EVENT: "Event", OTHER: "Other" };
 const statusLabel: Record<string, string> = { NEW: "New", CONTACTED: "Contacted", QUALIFIED: "Qualified", UNQUALIFIED: "Unqualified" };
-const statusColor: Record<string, string> = { NEW: "#e1162a", CONTACTED: "#6c6c75", QUALIFIED: "#0f0f11", UNQUALIFIED: "#b2b2ba" };
+const statusColor: Record<string, string> = { NEW: "#ed3039", CONTACTED: "#6b6b75", QUALIFIED: "#0f0f12", UNQUALIFIED: "#b6b6bd" };
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
