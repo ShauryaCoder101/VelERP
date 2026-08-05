@@ -1,8 +1,13 @@
 import { prisma } from "../../../lib/db";
-import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
+import { getRequestUser } from "../../../lib/rbac-server";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
+  const eventId = new URL(request.url).searchParams.get("eventId");
   const uploads = await prisma.upload.findMany({
+    where: eventId ? { eventId } : undefined,
     include: { event: true, user: true },
     orderBy: { createdAt: "desc" }
   });
@@ -10,8 +15,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { role, id: userId } = await getRequestUser(request);
-  if (!requireMinLevel(role, 3) && role !== "Photographer") {
+  // Anyone signed in can contribute media to an event.
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) {
     return new Response("Forbidden", { status: 403 });
   }
 

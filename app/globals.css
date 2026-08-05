@@ -1123,6 +1123,107 @@ strong { font-weight: 600; color: var(--ink); }
   transition: width 0.15s linear;
 }
 
+.uploader-path { color: var(--ink-faint); }
+
+/* ── Event media: drop target, folder groups, viewer ───────── */
+
+.media-modal { max-width: 720px; }
+.media-viewer { max-width: 900px; gap: 16px; }
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  padding: 28px 20px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--r-lg);
+  background: var(--gray-50);
+  transition: border-color var(--t), background var(--t);
+}
+
+.dropzone strong { font-family: var(--font-sans), sans-serif; font-size: 14px; }
+.dropzone .muted { max-width: 46ch; }
+
+.dropzone-active {
+  border-color: var(--red);
+  border-style: solid;
+  background: var(--red-wash);
+}
+
+/* Folder chips summarise the shoot without loading a single image */
+.media-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.media-folder-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--paper);
+  transition: border-color var(--t);
+  min-width: 150px;
+}
+
+.media-folder-chip:hover { border-color: var(--ink); }
+
+.media-folder-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.media-folder-meta { font-size: 11.5px; color: var(--ink-soft); }
+
+.media-group { display: flex; flex-direction: column; gap: 10px; }
+
+.media-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.media-group-name {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.media-group-meta { font-size: 11.5px; color: var(--ink-soft); margin-left: auto; }
+
+.media-badge-play,
+.media-badge-file {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-100);
+  color: var(--ink-soft);
+}
+
+.media-badge-file {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.lightbox-caption {
+  position: absolute;
+  bottom: -30px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+video.lightbox-img { background: #000; }
+
 .input {
   width: 100%;
   border: 1px solid var(--rule-strong);

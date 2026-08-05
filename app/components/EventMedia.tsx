@@ -1,0 +1,553 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { folderFromFileUrl, displayNameFromFileUrl } from "../../lib/uploadKey";
+
+export type UploadRecord = {
+  id: string;
+  fileUrl: string;
+  fileType: string;
+  createdAt: string;
+  user: { id: string; name: string } | null;
+};
+
+type Props = {
+  eventId: string;
+  uploads: UploadRecord[];
+  onUploaded: () => void;
+};
+
+type ItemStatus = "queued" | "uploading" | "done" | "error";
+
+type Item = {
+  id: string;
+  file: File;
+  /** folder portion only, "" for loose files */
+  path: string;
+  status: ItemStatus;
+  pct: number;
+  error?: string;
+};
+
+const UPLOAD_CONCURRENCY = 3;
+
+const formatBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const fmtDate = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  } catch {
+    return iso;
+  }
+};
+
+const contentTypeOf = (file: File) => file.type || "application/octet-stream";
+const isImage = (t: string) => t.startsWith("image/");
+const isVideo = (t: string) => t.startsWith("video/");
+
+/* fetch() cannot report upload progress; XHR can, which is the whole
+   difference when someone is pushing 40GB of event video. */
+const putToS3 = (url: string, file: File, onProgress: (pct: number) => void) =>
+  new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentTypeOf(file));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Storage refused the file (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Network error reaching storage"));
+    xhr.send(file);
+  });
+
+/* Dropped directories arrive as filesystem entries, not files. Walk them so a
+   dragged folder keeps its structure instead of collapsing to a flat list. */
+const readEntry = (entry: any, parentPath: string, out: { file: File; path: string }[]): Promise<void> =>
+  new Promise((resolve) => {
+    if (!entry) return resolve();
+    if (entry.isFile) {
+      entry.file(
+        (file: File) => {
+          out.push({ file, path: parentPath });
+          resolve();
+        },
+        () => resolve()
+      );
+      return;
+    }
+    if (entry.isDirectory) {
+      const childPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+      const reader = entry.createReader();
+      const collected: any[] = [];
+      const readBatch = () => {
+        reader.readEntries(
+          (entries: any[]) => {
+            if (entries.length === 0) {
+              Promise.all(collected.map((e) => readEntry(e, childPath, out))).then(() => resolve());
+              return;
+            }
+            collected.push(...entries);
+            readBatch();
+          },
+          () => resolve()
+        );
+      };
+      readBatch();
+      return;
+    }
+    resolve();
+  });
+
+const readDataTransfer = async (dt: DataTransfer) => {
+  const out: { file: File; path: string }[] = [];
+  const entries = Array.from(dt.items)
+    .map((item) => (typeof (item as any).webkitGetAsEntry === "function" ? (item as any).webkitGetAsEntry() : null))
+    .filter(Boolean);
+
+  if (entries.length > 0) {
+    await Promise.all(entries.map((e: any) => readEntry(e, "", out)));
+    return out;
+  }
+  // Browser without the entries API — plain files only.
+  return Array.from(dt.files).map((file) => ({ file, path: "" }));
+};
+
+export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [items, setItems] = useState<Item[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [dragging, setDragging] = useState(false);
+
+  const [signed, setSigned] = useState<Record<string, string>>({});
+  const [loadingMedia, setLoadingMedia] = useState(false);
+  const [lightbox, setLightbox] = useState<UploadRecord | null>(null);
+  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+
+  // webkitdirectory isn't in the React typings; set it on the element directly.
+  useEffect(() => {
+    if (folderRef.current) {
+      folderRef.current.setAttribute("webkitdirectory", "");
+      folderRef.current.setAttribute("directory", "");
+    }
+  }, [uploadOpen]);
+
+  /* ---- grouping for the viewer ---- */
+  const groups = useMemo(() => {
+    const map = new Map<string, UploadRecord[]>();
+    for (const u of uploads) {
+      const folder = folderFromFileUrl(u.fileUrl, eventId);
+      const list = map.get(folder);
+      if (list) list.push(u);
+      else map.set(folder, [u]);
+    }
+    return [...map.entries()]
+      .map(([folder, records]) => ({
+        folder,
+        records,
+        uploaders: [...new Set(records.map((r) => r.user?.name).filter(Boolean) as string[])]
+      }))
+      .sort((a, b) => (a.folder === "" ? -1 : b.folder === "" ? 1 : a.folder.localeCompare(b.folder)));
+  }, [uploads, eventId]);
+
+  /* ---- signed URLs, one round trip for the whole gallery ---- */
+  const loadSignedUrls = useCallback(async () => {
+    const missing = uploads.map((u) => u.fileUrl).filter((u) => !signed[u]);
+    if (missing.length === 0) return;
+    setLoadingMedia(true);
+    try {
+      const res = await fetch("/api/uploads/view", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: missing })
+      });
+      if (res.ok) {
+        const { signed: map } = await res.json();
+        setSigned((prev) => ({ ...prev, ...map }));
+      }
+    } catch {
+      /* the viewer shows a per-tile fallback */
+    } finally {
+      setLoadingMedia(false);
+    }
+  }, [uploads, signed]);
+
+  const openViewer = () => {
+    setViewerOpen(true);
+    setOpenFolders((prev) => {
+      const next = { ...prev };
+      for (const g of groups) if (next[g.folder] === undefined) next[g.folder] = true;
+      return next;
+    });
+    void loadSignedUrls();
+  };
+
+  /* ---- picking files ---- */
+  const addFiles = (incoming: { file: File; path: string }[]) => {
+    if (incoming.length === 0) return;
+    setNotice("");
+    setItems((prev) => [
+      ...prev,
+      ...incoming.map(({ file, path }, i) => ({
+        id: `${Date.now()}-${prev.length + i}-${file.name}`,
+        file,
+        path,
+        status: "queued" as ItemStatus,
+        pct: 0
+      }))
+    ]);
+  };
+
+  const fromInput = (list: FileList | null) => {
+    if (!list) return;
+    addFiles(
+      Array.from(list).map((file) => {
+        const rel = (file as any).webkitRelativePath as string | undefined;
+        const path = rel ? rel.split("/").slice(0, -1).join("/") : "";
+        return { file, path };
+      })
+    );
+  };
+
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (busy) return;
+    addFiles(await readDataTransfer(e.dataTransfer));
+  };
+
+  const patch = (id: string, next: Partial<Item>) =>
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...next } : i)));
+
+  const removeItem = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
+
+  const totalBytes = items.reduce((s, i) => s + i.file.size, 0);
+  const pending = items.filter((i) => i.status === "queued" || i.status === "error");
+
+  /* ---- the upload run ---- */
+  const handleUpload = async () => {
+    if (pending.length === 0) {
+      setNotice("Add photos, videos or a folder first.");
+      return;
+    }
+    setBusy(true);
+    setNotice("");
+
+    const queue = [...pending];
+    let failures = 0;
+
+    const worker = async () => {
+      for (;;) {
+        const item = queue.shift();
+        if (!item) return;
+        patch(item.id, { status: "uploading", pct: 0, error: undefined });
+        try {
+          const presignRes = await fetch("/api/uploads/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              eventId,
+              fileName: item.file.name,
+              fileType: contentTypeOf(item.file),
+              relativePath: item.path
+            })
+          });
+          if (!presignRes.ok) throw new Error("Could not get an upload link");
+          const { uploadUrl, fileUrl } = await presignRes.json();
+
+          await putToS3(uploadUrl, item.file, (pct) => patch(item.id, { pct }));
+
+          const recordRes = await fetch("/api/uploads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ eventId, fileUrl, fileType: contentTypeOf(item.file) })
+          });
+          if (!recordRes.ok) throw new Error("Uploaded, but could not be recorded");
+
+          patch(item.id, { status: "done", pct: 100 });
+        } catch (err) {
+          failures += 1;
+          patch(item.id, { status: "error", error: err instanceof Error ? err.message : "Upload failed" });
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, queue.length) }, worker));
+
+    setBusy(false);
+    const ok = pending.length - failures;
+    setNotice(
+      failures === 0
+        ? `${ok} file${ok !== 1 ? "s" : ""} uploaded.`
+        : `${ok} uploaded, ${failures} failed. Press Upload again to retry the failures.`
+    );
+    onUploaded();
+  };
+
+  const closeUpload = () => {
+    if (busy) return;
+    setUploadOpen(false);
+    setItems([]);
+    setNotice("");
+  };
+
+  const photoCount = uploads.filter((u) => isImage(u.fileType)).length;
+  const videoCount = uploads.filter((u) => isVideo(u.fileType)).length;
+
+  return (
+    <section className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-header claims-header">
+        <div>
+          <h2>Event media</h2>
+          <p className="muted">
+            {uploads.length === 0
+              ? "No media yet."
+              : `${uploads.length} file${uploads.length !== 1 ? "s" : ""}` +
+                (photoCount ? ` · ${photoCount} photo${photoCount !== 1 ? "s" : ""}` : "") +
+                (videoCount ? ` · ${videoCount} video${videoCount !== 1 ? "s" : ""}` : "")}
+          </p>
+        </div>
+        <div className="claims-actions">
+          <button className="btn-primary" type="button" onClick={() => setUploadOpen(true)}>
+            Upload event media
+          </button>
+          <button className="btn-outline" type="button" onClick={openViewer} disabled={uploads.length === 0}>
+            View event media
+          </button>
+        </div>
+      </div>
+
+      {/* A contact sheet of the most recent files, so the panel isn't just two buttons */}
+      {uploads.length > 0 && (
+        <div className="panel-body">
+          <div className="media-strip">
+            {groups.map((g) => (
+              <button
+                key={g.folder || "__loose"}
+                type="button"
+                className="media-folder-chip"
+                onClick={openViewer}
+              >
+                <span className="media-folder-name">{g.folder || "Loose files"}</span>
+                <span className="media-folder-meta">
+                  {g.records.length} file{g.records.length !== 1 ? "s" : ""} · {g.uploaders.join(", ") || "Unknown"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Upload dialog ---------------- */}
+      {uploadOpen && (
+        <div className="modal-overlay" onClick={closeUpload}>
+          <div className="modal-card media-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="claims-header">
+              <h3>Upload event media</h3>
+              <button className="link-button" type="button" onClick={closeUpload} disabled={busy}>Close</button>
+            </div>
+
+            <div
+              className={`dropzone${dragging ? " dropzone-active" : ""}`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!busy) setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+            >
+              <strong>Drop photos, videos or whole folders here</strong>
+              <span className="muted">Folder structure is kept, and everything goes straight to secure storage.</span>
+              <div className="claims-actions" style={{ justifyContent: "center", marginTop: 4 }}>
+                <button className="btn-outline" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>
+                  Select files
+                </button>
+                <button className="btn-outline" type="button" disabled={busy} onClick={() => folderRef.current?.click()}>
+                  Select a folder
+                </button>
+              </div>
+            </div>
+
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                fromInput(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={folderRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => {
+                fromInput(e.target.files);
+                e.target.value = "";
+              }}
+            />
+
+            {items.length > 0 && (
+              <div className="uploader-list">
+                <div className="uploader-list-head">
+                  <span>{items.length} file{items.length !== 1 ? "s" : ""} · {formatBytes(totalBytes)}</span>
+                  <span>{items.filter((i) => i.status === "done").length} uploaded</span>
+                </div>
+                {items.map((item) => (
+                  <div key={item.id} className={`uploader-row uploader-${item.status}`}>
+                    <span className="uploader-name" title={item.path ? `${item.path}/${item.file.name}` : item.file.name}>
+                      {item.path && <span className="uploader-path">{item.path}/</span>}
+                      {item.file.name}
+                    </span>
+                    <span className="uploader-size">{formatBytes(item.file.size)}</span>
+                    <span className="uploader-state">
+                      {item.status === "queued" && "Queued"}
+                      {item.status === "uploading" && `${item.pct}%`}
+                      {item.status === "done" && "Uploaded"}
+                      {item.status === "error" && (item.error ?? "Failed")}
+                    </span>
+                    {item.status === "uploading" ? (
+                      <span className="uploader-bar"><span style={{ width: `${item.pct}%` }} /></span>
+                    ) : (
+                      <button
+                        className="row-remove"
+                        type="button"
+                        aria-label={`Remove ${item.file.name}`}
+                        disabled={busy}
+                        onClick={() => removeItem(item.id)}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {notice && <div className="muted">{notice}</div>}
+
+            <div className="modal-actions">
+              <button className="btn-outline" type="button" onClick={closeUpload} disabled={busy}>
+                {busy ? "Uploading…" : "Done"}
+              </button>
+              <button className="btn-primary" type="button" onClick={handleUpload} disabled={busy || pending.length === 0}>
+                {busy ? "Uploading…" : `Upload ${pending.length || ""}`.trim()}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Viewer dialog ---------------- */}
+      {viewerOpen && (
+        <div className="modal-overlay" onClick={() => setViewerOpen(false)}>
+          <div className="modal-card media-modal media-viewer" onClick={(e) => e.stopPropagation()}>
+            <div className="claims-header">
+              <div>
+                <h3>Event media</h3>
+                <p className="muted">{uploads.length} file{uploads.length !== 1 ? "s" : ""} in secure storage</p>
+              </div>
+              <button className="link-button" type="button" onClick={() => setViewerOpen(false)}>Close</button>
+            </div>
+
+            {loadingMedia && <div className="muted">Preparing secure links…</div>}
+
+            {groups.map((g) => {
+              const open = openFolders[g.folder] !== false;
+              return (
+                <div key={g.folder || "__loose"} className="media-group">
+                  <button
+                    className="media-group-head"
+                    type="button"
+                    onClick={() => setOpenFolders((p) => ({ ...p, [g.folder]: !open }))}
+                  >
+                    <span className="media-group-name">{g.folder || "Loose files"}</span>
+                    <span className="media-group-meta">
+                      {g.records.length} file{g.records.length !== 1 ? "s" : ""} · uploaded by {g.uploaders.join(", ") || "Unknown"}
+                    </span>
+                  </button>
+
+                  {open && (
+                    <div className="photo-gallery">
+                      {g.records.map((r) => {
+                        const src = signed[r.fileUrl];
+                        const name = displayNameFromFileUrl(r.fileUrl);
+                        return (
+                          <button
+                            key={r.id}
+                            type="button"
+                            className="photo-thumb"
+                            title={name}
+                            onClick={() => setLightbox(r)}
+                          >
+                            {isImage(r.fileType) && src && <img src={src} alt={name} loading="lazy" />}
+                            {isVideo(r.fileType) && (
+                              <span className="media-badge-play" aria-hidden="true">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                              </span>
+                            )}
+                            {!isImage(r.fileType) && !isVideo(r.fileType) && (
+                              <span className="media-badge-file">{(r.fileType.split("/")[1] || "file").slice(0, 4).toUpperCase()}</span>
+                            )}
+                            <div className="photo-thumb-info">
+                              <span className="muted">{r.user?.name ?? "Unknown"}</span>
+                              <span className="muted">{fmtDate(r.createdAt)}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- Lightbox ---------------- */}
+      {lightbox && (
+        <div className="modal-overlay" onClick={() => setLightbox(null)} style={{ zIndex: 90 }}>
+          <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
+            <button className="lightbox-close" type="button" onClick={() => setLightbox(null)} aria-label="Close">×</button>
+            {isImage(lightbox.fileType) && signed[lightbox.fileUrl] && (
+              <img className="lightbox-img" src={signed[lightbox.fileUrl]} alt={displayNameFromFileUrl(lightbox.fileUrl)} />
+            )}
+            {isVideo(lightbox.fileType) && signed[lightbox.fileUrl] && (
+              <video className="lightbox-img" src={signed[lightbox.fileUrl]} controls autoPlay />
+            )}
+            {!isImage(lightbox.fileType) && !isVideo(lightbox.fileType) && (
+              <div className="panel" style={{ padding: 24, background: "var(--paper)" }}>
+                <h3>{displayNameFromFileUrl(lightbox.fileUrl)}</h3>
+                <p className="muted">Uploaded by {lightbox.user?.name ?? "Unknown"} · {fmtDate(lightbox.createdAt)}</p>
+                {signed[lightbox.fileUrl] && (
+                  <a className="btn-primary" style={{ marginTop: 12 }} href={signed[lightbox.fileUrl]} target="_blank" rel="noopener noreferrer">
+                    Open file
+                  </a>
+                )}
+              </div>
+            )}
+            <div className="lightbox-caption">
+              {displayNameFromFileUrl(lightbox.fileUrl)} · {lightbox.user?.name ?? "Unknown"} · {fmtDate(lightbox.createdAt)}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}

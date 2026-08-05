@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import EventMedia from "../../../components/EventMedia";
 
 type UploadItem = {
   id: string;
@@ -132,15 +133,11 @@ const SkeletonPeople = ({ count = 3 }: { count?: number }) => (
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
   const costSheetRef = useRef<HTMLInputElement>(null);
   const closingSheetRef = useRef<HTMLInputElement>(null);
 
   const [ev, setEv] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState("");
-  const [lightbox, setLightbox] = useState<string | null>(null);
   const [billPreviewUrl, setBillPreviewUrl] = useState<string | null>(null);
   const [loadingBillPreview, setLoadingBillPreview] = useState(false);
   const [costSheetUploading, setCostSheetUploading] = useState(false);
@@ -239,42 +236,6 @@ export default function EventDetailPage() {
   const canDelete = currentUser && ev && (
     currentUser.role === "MANAGING_DIRECTOR" || ev.createdBy === currentUser.id
   );
-
-  const handleUpload = async (files: FileList) => {
-    if (!files.length || !ev) return;
-    setUploading(true);
-    const total = files.length;
-
-    for (let i = 0; i < total; i++) {
-      const file = files[i];
-      setUploadProgress(`Uploading ${i + 1} of ${total}: ${file.name}`);
-
-      try {
-        const presignRes = await fetch("/api/uploads/presign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: file.name, fileType: file.type, eventId: ev.id })
-        });
-        if (!presignRes.ok) { setUploadProgress(`Failed to get upload URL for ${file.name}`); continue; }
-        const { uploadUrl, fileUrl } = await presignRes.json();
-
-        await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-
-        await fetch("/api/uploads", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ eventId: ev.id, fileUrl, fileType: file.type })
-        });
-      } catch {
-        setUploadProgress(`Error uploading ${file.name}`);
-      }
-    }
-
-    setUploading(false);
-    setUploadProgress("");
-    if (fileRef.current) fileRef.current.value = "";
-    loadEvent();
-  };
 
   const handleSheetUpload = async (file: File, type: "cost-sheet" | "closing-sheet") => {
     if (!ev) return;
@@ -449,9 +410,6 @@ export default function EventDetailPage() {
 
   const phase = phaseLabel(ev.phase);
   const color = phaseColor(ev.phase);
-  const photos = ev.uploads.filter((u) => isImage(u.fileType));
-  const otherFiles = ev.uploads.filter((u) => !isImage(u.fileType));
-
   // Build finance data for all event vendors
   const financeMap = new Map(finances.map((f) => [f.vendorId, f]));
   const allEventVendors = ev.vendors.map((v) => {
@@ -859,71 +817,7 @@ export default function EventDetailPage() {
         </div>
       </section>
 
-      {/* Upload & Photos section - full width */}
-      <section className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-header claims-header">
-          <h2>Event Photos & Files</h2>
-          <div className="claims-actions" style={{ gap: 10 }}>
-            {uploadProgress && <span className="muted">{uploadProgress}</span>}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
-              style={{ display: "none" }}
-              onChange={(e) => e.target.files && handleUpload(e.target.files)}
-            />
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={uploading}
-              onClick={() => fileRef.current?.click()}
-            >
-              {uploading ? "Uploading…" : "Upload Photos"}
-            </button>
-          </div>
-        </div>
-        <div className="panel-body">
-          {ev.uploads.length === 0 ? (
-            <div className="empty-state">No photos or files uploaded yet.</div>
-          ) : (
-            <>
-              {photos.length > 0 && (
-                <div className="photo-gallery">
-                  {photos.map((p) => (
-                    <button key={p.id} type="button" className="photo-thumb" onClick={() => setLightbox(p.fileUrl)}>
-                      <img src={p.fileUrl} alt="Event photo" loading="lazy" />
-                      <div className="photo-thumb-info">
-                        <span className="muted">{p.user.name}</span>
-                        <span className="muted">{fmt(p.createdAt)}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {otherFiles.length > 0 && (
-                <div style={{ marginTop: photos.length > 0 ? 16 : 0 }}>
-                  <h4 style={{ marginBottom: 8 }}>Other Files</h4>
-                  <div className="detail-people-list">
-                    {otherFiles.map((f) => (
-                      <a key={f.id} href={f.fileUrl} target="_blank" rel="noopener noreferrer" className="detail-person-card hover-text">
-                        <div className="avatar" style={{ width: 36, height: 36, fontSize: 14, background: "#b6b6bd" }}>
-                          {f.fileType.split("/")[1]?.slice(0, 3).toUpperCase() ?? "FILE"}
-                        </div>
-                        <div>
-                          <strong>{f.fileUrl.split("/").pop()}</strong>
-                          <span className="muted">{f.user.name} · {fmt(f.createdAt)}</span>
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
+      <EventMedia eventId={ev.id} uploads={ev.uploads} onUploaded={loadEvent} />
 
       {/* Closing Sheet - bottom */}
       <section className="panel closing-sheet-panel" style={{ marginTop: 16 }}>
@@ -965,15 +859,6 @@ export default function EventDetailPage() {
           )}
         </div>
       </section>
-
-      {lightbox && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={() => setLightbox(null)}>
-          <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
-            <button className="lightbox-close" type="button" onClick={() => setLightbox(null)}>×</button>
-            <img src={lightbox} alt="Full size" className="lightbox-img" />
-          </div>
-        </div>
-      )}
 
       {/* Bill Preview Modal */}
       {billPreviewUrl && (
