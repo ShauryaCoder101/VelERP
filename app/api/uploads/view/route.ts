@@ -1,37 +1,45 @@
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getS3Config, createS3Client } from "../../../../lib/s3";
+import { getProfile, resolveForUrl } from "../../../../lib/storage";
+import { isDerivedKey } from "../../../../lib/archive";
 import { getRequestUser } from "../../../../lib/rbac-server";
 
 const EXPIRES = 60 * 60; // an hour is long enough to browse a shoot
 const MAX_BATCH = 300;
 
-/* The bucket is private, so nothing can be rendered from its raw URL —
-   every read is a short-lived signed GET minted here. */
-const signOne = async (
-  client: ReturnType<typeof createS3Client>,
-  bucket: string,
-  publicBaseUrl: string,
-  fileUrl: string
-) => {
-  const prefix = `${publicBaseUrl}/`;
-  if (!fileUrl.startsWith(prefix)) return null;
-  const key = decodeURIComponent(fileUrl.slice(prefix.length));
-  return getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: EXPIRES });
+/* Buckets are private, so nothing renders from a raw URL — every read is a
+   short-lived signed GET minted here. The bucket is chosen from the stored
+   URL, which is how pre-R2 objects keep working untouched. */
+const signOne = async (fileUrl: string, archived: boolean) => {
+  const found = resolveForUrl(fileUrl);
+  if (!found) return null;
+
+  let { profile, key } = found;
+
+  /* A cold original lives at the same key in the archive bucket. Thumbnails are
+     never archived, so they always resolve to the hot profile. */
+  if (archived && !isDerivedKey(key)) {
+    const archive = getProfile("archive");
+    if (archive) profile = archive;
+  }
+
+  try {
+    return await getSignedUrl(profile.client, new GetObjectCommand({ Bucket: profile.bucket, Key: key }), {
+      expiresIn: EXPIRES
+    });
+  } catch {
+    return null;
+  }
 };
 
 export async function GET(request: Request) {
   const { id: userId } = await getRequestUser(request);
   if (!userId) return new Response("Forbidden", { status: 403 });
 
-  const config = getS3Config();
-  if (!config) return Response.json({ error: "S3 not configured" }, { status: 500 });
-
   const fileUrl = new URL(request.url).searchParams.get("url");
   if (!fileUrl) return Response.json({ error: "Missing url parameter" }, { status: 400 });
 
-  const client = createS3Client(config);
-  const signedUrl = await signOne(client, config.bucket, config.publicBaseUrl, fileUrl);
+  const signedUrl = await signOne(fileUrl, false);
   if (!signedUrl) return Response.json({ error: "Invalid file URL" }, { status: 400 });
 
   return Response.json({ signedUrl });
@@ -43,21 +51,13 @@ export async function POST(request: Request) {
   const { id: userId } = await getRequestUser(request);
   if (!userId) return new Response("Forbidden", { status: 403 });
 
-  const config = getS3Config();
-  if (!config) return Response.json({ error: "S3 not configured" }, { status: 500 });
-
   const body = await request.json();
   const urls: string[] = Array.isArray(body.urls) ? body.urls.slice(0, MAX_BATCH) : [];
+  const archivedUrls: string[] = Array.isArray(body.archived) ? body.archived : [];
+  const cold = new Set(archivedUrls);
 
-  const client = createS3Client(config);
   const entries = await Promise.all(
-    urls.map(async (url) => {
-      try {
-        return [url, await signOne(client, config.bucket, config.publicBaseUrl, url)] as const;
-      } catch {
-        return [url, null] as const;
-      }
-    })
+    urls.map(async (url) => [url, await signOne(url, cold.has(url))] as const)
   );
 
   const signed: Record<string, string> = {};

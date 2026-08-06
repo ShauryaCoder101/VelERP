@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { folderFromFileUrl, displayNameFromFileUrl } from "../../lib/uploadKey";
+import { folderFromFileUrl, displayNameFromFileUrl, derivativeUrlFor } from "../../lib/uploadKey";
+import { makeDerivatives } from "../../lib/derivatives";
+import { isArchived, daysUntilArchived } from "../../lib/archive";
 
 export type UploadRecord = {
   id: string;
@@ -128,9 +130,18 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
   const [notice, setNotice] = useState("");
   const [dragging, setDragging] = useState(false);
 
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareFolder, setShareFolder] = useState("");
+  const [shareDays, setShareDays] = useState(7);
+  const [shareLink, setShareLink] = useState("");
+  const [shareExpires, setShareExpires] = useState<number | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
   const [signed, setSigned] = useState<Record<string, string>>({});
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [lightbox, setLightbox] = useState<UploadRecord | null>(null);
+  const [restoreState, setRestoreState] = useState<Record<string, string>>({});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
   const fileRef = useRef<HTMLInputElement>(null);
@@ -164,14 +175,24 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
 
   /* ---- signed URLs, one round trip for the whole gallery ---- */
   const loadSignedUrls = useCallback(async () => {
-    const missing = uploads.map((u) => u.fileUrl).filter((u) => !signed[u]);
+    // Thumbnails carry the grid; originals are only needed on demand.
+    const wanted = uploads.flatMap((u) => [
+      u.fileUrl,
+      derivativeUrlFor(u.fileUrl, "thumb"),
+      derivativeUrlFor(u.fileUrl, "preview")
+    ]);
+    const missing = [...new Set(wanted.filter((u): u is string => Boolean(u) && !signed[u!]))];
     if (missing.length === 0) return;
     setLoadingMedia(true);
     try {
       const res = await fetch("/api/uploads/view", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: missing })
+        body: JSON.stringify({
+          urls: missing,
+          // Cold originals must be signed against the archive bucket instead.
+          archived: uploads.filter((u) => isArchived(u.createdAt)).map((u) => u.fileUrl)
+        })
       });
       if (res.ok) {
         const { signed: map } = await res.json();
@@ -261,13 +282,33 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
               eventId,
               fileName: item.file.name,
               fileType: contentTypeOf(item.file),
-              relativePath: item.path
+              relativePath: item.path,
+              derivatives: ["thumb", "preview"],
+              purpose: "media"
             })
           });
           if (!presignRes.ok) throw new Error("Could not get an upload link");
-          const { uploadUrl, fileUrl } = await presignRes.json();
+          const { uploadUrl, fileUrl, derivatives } = await presignRes.json();
+
+          /* Shrink here, in the browser, before anything leaves the machine.
+             Galleries then read kilobytes instead of the full original. */
+          const small = await makeDerivatives(item.file);
 
           await putToS3(uploadUrl, item.file, (pct) => patch(item.id, { pct }));
+
+          // Best effort: a missing thumbnail only means the viewer falls back.
+          await Promise.all(
+            (["thumb", "preview"] as const).map(async (kind) => {
+              const blob = small[kind];
+              const slot = derivatives?.[kind];
+              if (!blob || !slot) return;
+              await fetch(slot.uploadUrl, {
+                method: "PUT",
+                headers: { "Content-Type": "image/jpeg" },
+                body: blob
+              }).catch(() => {});
+            })
+          );
 
           const recordRes = await fetch("/api/uploads", {
             method: "POST",
@@ -303,6 +344,52 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     setNotice("");
   };
 
+  const requestOriginal = async (record: UploadRecord) => {
+    setRestoreState((p) => ({ ...p, [record.id]: "Requesting…" }));
+    try {
+      const res = await fetch("/api/uploads/restore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId: record.id, tier: "Standard" })
+      });
+      const data = await res.json();
+      setRestoreState((p) => ({ ...p, [record.id]: data.message || data.error || "Requested." }));
+    } catch {
+      setRestoreState((p) => ({ ...p, [record.id]: "Could not start retrieval." }));
+    }
+  };
+
+  const createShareLink = async () => {
+    setShareBusy(true);
+    setCopied(false);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, folder: shareFolder || null, days: shareDays })
+      });
+      if (!res.ok) throw new Error();
+      const { token, expires } = await res.json();
+      setShareLink(`${window.location.origin}/share/${token}`);
+      setShareExpires(expires);
+    } catch {
+      setShareLink("");
+      setShareExpires(null);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      /* the field is selectable as a fallback */
+    }
+  };
+
   const photoCount = uploads.filter((u) => isImage(u.fileType)).length;
   const videoCount = uploads.filter((u) => isVideo(u.fileType)).length;
 
@@ -325,6 +412,18 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
           </button>
           <button className="btn-outline" type="button" onClick={openViewer} disabled={uploads.length === 0}>
             View event media
+          </button>
+          <button
+            className="btn-outline"
+            type="button"
+            onClick={() => {
+              setShareOpen(true);
+              setShareLink("");
+              setShareExpires(null);
+            }}
+            disabled={uploads.length === 0}
+          >
+            Create client link
           </button>
         </div>
       </div>
@@ -485,7 +584,8 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
                   {open && (
                     <div className="photo-gallery">
                       {g.records.map((r) => {
-                        const src = signed[r.fileUrl];
+                        const thumbUrl = derivativeUrlFor(r.fileUrl, "thumb");
+                        const src = (thumbUrl && signed[thumbUrl]) || signed[r.fileUrl];
                         const name = displayNameFromFileUrl(r.fileUrl);
                         return (
                           <button
@@ -495,15 +595,28 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
                             title={name}
                             onClick={() => setLightbox(r)}
                           >
-                            {isImage(r.fileType) && src && <img src={src} alt={name} loading="lazy" />}
+                            {(isImage(r.fileType) || isVideo(r.fileType)) && src && (
+                              <img
+                                src={src}
+                                alt={name}
+                                loading="lazy"
+                                onError={(e) => {
+                                  // Pre-thumbnail uploads have no derivative to serve.
+                                  const img = e.currentTarget;
+                                  const full = signed[r.fileUrl];
+                                  if (full && img.src !== full) img.src = full;
+                                }}
+                              />
+                            )}
                             {isVideo(r.fileType) && (
-                              <span className="media-badge-play" aria-hidden="true">
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                              <span className="media-play-badge" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                               </span>
                             )}
                             {!isImage(r.fileType) && !isVideo(r.fileType) && (
                               <span className="media-badge-file">{(r.fileType.split("/")[1] || "file").slice(0, 4).toUpperCase()}</span>
                             )}
+                            {isArchived(r.createdAt) && <span className="media-cold-chip">Archived</span>}
                             <div className="photo-thumb-info">
                               <span className="muted">{r.user?.name ?? "Unknown"}</span>
                               <span className="muted">{fmtDate(r.createdAt)}</span>
@@ -520,14 +633,102 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
         </div>
       )}
 
+      {/* ---------------- Client link dialog ---------------- */}
+      {shareOpen && (
+        <div className="modal-overlay" onClick={() => setShareOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="claims-header">
+              <h3>Create client link</h3>
+              <button className="link-button" type="button" onClick={() => setShareOpen(false)}>Close</button>
+            </div>
+            <p className="muted">
+              Anyone with the link can view and download this media. No sign-in, and nothing else about the
+              event is shown.
+            </p>
+
+            <label className="auth-label" htmlFor="share-scope">What to share</label>
+            <select
+              id="share-scope"
+              className="input select"
+              value={shareFolder}
+              onChange={(e) => {
+                setShareFolder(e.target.value);
+                setShareLink("");
+              }}
+            >
+              <option value="">Everything in this event ({uploads.length} files)</option>
+              {groups
+                .filter((g) => g.folder)
+                .map((g) => (
+                  <option key={g.folder} value={g.folder}>
+                    {g.folder} ({g.records.length} files)
+                  </option>
+                ))}
+            </select>
+
+            <label className="auth-label" htmlFor="share-days">Expires after</label>
+            <select
+              id="share-days"
+              className="input select"
+              value={shareDays}
+              onChange={(e) => {
+                setShareDays(Number(e.target.value));
+                setShareLink("");
+              }}
+            >
+              <option value={2}>2 days (minimum)</option>
+              <option value={5}>5 days</option>
+              <option value={7}>7 days</option>
+              <option value={14}>14 days</option>
+              <option value={21}>21 days</option>
+              <option value={30}>30 days (maximum)</option>
+            </select>
+            <span className="cell-meta">Pick the shortest window the client actually needs.</span>
+
+            {shareLink && (
+              <>
+                <label className="auth-label" htmlFor="share-link">Link</label>
+                <input
+                  id="share-link"
+                  className="input share-link-field"
+                  readOnly
+                  value={shareLink}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                {shareExpires && (
+                  <span className="cell-meta">
+                    Stops working {new Date(shareExpires).toLocaleString("en-IN", {
+                      day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true
+                    })}. It cannot be revoked earlier, so share it carefully.
+                  </span>
+                )}
+              </>
+            )}
+
+            <div className="modal-actions">
+              {shareLink && (
+                <button className="btn-outline" type="button" onClick={copyLink}>
+                  {copied ? "Copied" : "Copy link"}
+                </button>
+              )}
+              <button className="btn-primary" type="button" onClick={createShareLink} disabled={shareBusy}>
+                {shareBusy ? "Creating…" : shareLink ? "Create a new link" : "Create link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---------------- Lightbox ---------------- */}
       {lightbox && (
         <div className="modal-overlay" onClick={() => setLightbox(null)} style={{ zIndex: 90 }}>
           <div className="lightbox-container" onClick={(e) => e.stopPropagation()}>
             <button className="lightbox-close" type="button" onClick={() => setLightbox(null)} aria-label="Close">×</button>
-            {isImage(lightbox.fileType) && signed[lightbox.fileUrl] && (
-              <img className="lightbox-img" src={signed[lightbox.fileUrl]} alt={displayNameFromFileUrl(lightbox.fileUrl)} />
-            )}
+            {isImage(lightbox.fileType) && (() => {
+              const p = derivativeUrlFor(lightbox.fileUrl, "preview");
+              const src = (p && signed[p]) || signed[lightbox.fileUrl];
+              return src ? <img className="lightbox-img" src={src} alt={displayNameFromFileUrl(lightbox.fileUrl)} /> : null;
+            })()}
             {isVideo(lightbox.fileType) && signed[lightbox.fileUrl] && (
               <video className="lightbox-img" src={signed[lightbox.fileUrl]} controls autoPlay />
             )}
@@ -544,6 +745,28 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
             )}
             <div className="lightbox-caption">
               {displayNameFromFileUrl(lightbox.fileUrl)} · {lightbox.user?.name ?? "Unknown"} · {fmtDate(lightbox.createdAt)}
+              {isArchived(lightbox.createdAt) ? (
+                <>
+                  <br />
+                  <span>
+                    Original is in cold storage.{" "}
+                    <button className="lightbox-link" type="button" onClick={() => requestOriginal(lightbox)}>
+                      Request original
+                    </button>
+                    {restoreState[lightbox.id] ? ` — ${restoreState[lightbox.id]}` : " — ready in about 12 hours"}
+                  </span>
+                </>
+              ) : (
+                (() => {
+                  const left = daysUntilArchived(lightbox.createdAt);
+                  return left !== null && left <= 14 ? (
+                    <>
+                      <br />
+                      <span>Moves to cold storage in {left} day{left !== 1 ? "s" : ""}</span>
+                    </>
+                  ) : null;
+                })()
+              )}
             </div>
           </div>
         </div>

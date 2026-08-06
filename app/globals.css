@@ -1195,7 +1195,6 @@ strong { font-weight: 600; color: var(--ink); }
 
 .media-group-meta { font-size: 11.5px; color: var(--ink-soft); margin-left: auto; }
 
-.media-badge-play,
 .media-badge-file {
   position: absolute;
   inset: 0;
@@ -1204,6 +1203,56 @@ strong { font-weight: 600; color: var(--ink); }
   justify-content: center;
   background: var(--gray-100);
   color: var(--ink-soft);
+}
+
+.media-play-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 22px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(15, 15, 18, 0.74);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.share-link-field {
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+}
+
+/* Cold storage: browsable via thumbnails, original needs thawing */
+.media-cold-chip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: rgba(15, 15, 18, 0.76);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.lightbox-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #fff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.share-lightbox-note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  max-width: 46ch;
 }
 
 .media-badge-file {
@@ -2240,6 +2289,459 @@ select[multiple].input { min-height: 120px; background-image: none; }
   .noti-panel { width: calc(100vw - 28px); right: -8px; }
   .profile-name { display: none; }
   .sales-pipeline { gap: 20px; }
+}
+
+/* ── Client gallery (public share link) ─────────────────────
+   The only screen a client ever sees, so it drops every trace of
+   dashboard chrome: wide margins, one column of attention, and
+   the media itself carrying the page. Formal, quiet, unhurried. */
+
+.share-page {
+  min-height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+
+.share-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 40px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.share-masthead .wordmark { height: 24px; }
+
+.share-masthead-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.share-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1160px;
+  margin: 0 auto;
+  padding: 56px 40px 72px;
+}
+
+.share-head {
+  position: relative;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 22px;
+}
+
+.share-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 52px;
+  height: 2px;
+  background: var(--red);
+}
+
+.share-eyebrow {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 12px;
+}
+
+.share-head h1 {
+  font-size: 42px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+
+.share-dates {
+  font-family: var(--font-mono), monospace;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+/* The expiry is a courtesy, not a warning — stated plainly, once. */
+.share-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink);
+  border-radius: var(--r);
+  background: var(--gray-50);
+  font-size: 13px;
+  color: var(--ink);
+  margin-bottom: 44px;
+}
+
+.share-notice-sub { font-size: 12px; color: var(--ink-soft); }
+.share-notice-expired { border-left-color: var(--red); background: var(--red-wash); }
+
+.share-section { margin-bottom: 48px; }
+
+.share-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 18px;
+}
+
+.share-section-head h2 {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.share-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 20px 16px;
+}
+
+/* ── Client gallery: tabs, selection, folders ─────────────── */
+
+.share-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 18px;
+  overflow-x: auto;
+}
+
+.share-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 18px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  margin-bottom: -1px;
+  transition: color var(--t), border-color var(--t);
+}
+
+.share-tab:hover:not(:disabled) { color: var(--ink); }
+.share-tab:disabled { opacity: 0.4; cursor: default; }
+
+.share-tab-active,
+.share-tab-active:hover { color: var(--ink); border-bottom-color: var(--red); }
+
+.share-tab-count {
+  font-family: var(--font-mono), monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--gray-100);
+  color: var(--ink-soft);
+}
+
+.share-tab-active .share-tab-count { background: var(--ink); color: #fff; }
+
+.share-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 0 16px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.share-selectall {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-body);
+  cursor: pointer;
+}
+
+.share-selectall input { accent-color: var(--red); width: 15px; height: 15px; cursor: pointer; }
+
+.share-toolbar-status {
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+
+.share-toolbar-actions { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
+.share-hint {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin: -4px 0 20px;
+  max-width: 76ch;
+}
+
+.share-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.share-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--paper);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: border-color var(--t);
+}
+
+.share-folder:hover { border-color: var(--ink); }
+
+/* Four-up mosaic so a folder is recognisable before you open it */
+.share-folder-mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 1px;
+  aspect-ratio: 3 / 2;
+  background: var(--rule);
+}
+
+.share-folder-mosaic > span { background: var(--gray-100); overflow: hidden; }
+.share-folder-mosaic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.share-folder-meta { display: flex; flex-direction: column; gap: 2px; padding: 0 12px; }
+.share-folder-meta strong { font-size: 13.5px; }
+
+.share-crumb {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+.share-crumb:hover { color: var(--red); }
+
+.share-tile { display: flex; flex-direction: column; gap: 8px; }
+
+.share-tile-frame { position: relative; }
+
+.share-check {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--rule-strong);
+  cursor: pointer;
+}
+
+.share-check input { accent-color: var(--red); width: 14px; height: 14px; cursor: pointer; margin: 0; }
+
+.share-tile-selected .share-tile-btn { border-color: var(--red); }
+.share-tile-selected .share-tile-name { color: var(--ink); }
+
+.share-tile-cold {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: rgba(15, 15, 18, 0.76);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.share-tile-btn {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--gray-100);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color var(--t);
+}
+
+.share-tile-btn:hover { border-color: var(--ink); }
+
+.share-tile-btn img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.share-tile-fallback,
+.share-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.share-play {
+  inset: auto 10px 10px auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(15, 15, 18, 0.72);
+  color: #fff;
+}
+
+.share-tile-name {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 20px 40px;
+  border-top: 1px solid var(--rule);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.share-state {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 64px 32px;
+  max-width: 46ch;
+}
+
+.share-state .wordmark { height: 26px; margin-bottom: 12px; }
+
+/* Lightbox */
+.share-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(15, 15, 18, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+
+.share-lightbox-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1100px;
+  width: 100%;
+}
+
+.share-lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.share-lightbox-stage img,
+.share-lightbox-stage video {
+  max-width: 100%;
+  max-height: 76vh;
+  object-fit: contain;
+  border-radius: var(--r);
+  display: block;
+}
+
+.share-lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.share-lightbox-name {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-lightbox-actions { display: flex; gap: 8px; }
+
+.share-lightbox-actions .btn-outline {
+  background: transparent;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.share-lightbox-actions .btn-outline:hover {
+  border-color: #fff;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.share-lightbox-actions .btn-primary {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.share-lightbox-actions .btn-primary:hover { background: var(--red-deep); border-color: var(--red-deep); }
+
+@media (max-width: 720px) {
+  .share-masthead, .share-foot { padding-left: 20px; padding-right: 20px; }
+  .share-main { padding: 36px 20px 56px; }
+  .share-head h1 { font-size: 30px; }
+  .share-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 10px; }
 }
 
 /* ── Motion preferences ────────────────────────────────────── */

@@ -43,3 +43,28 @@ export const displayNameFromFileUrl = (fileUrl: string) => {
   const raw = decodeURIComponent(fileUrl.split("/").pop() ?? "file");
   return raw.replace(/^\d{10,}-/, "");
 };
+
+/* Browsing a 300GB shoot at full resolution is what makes S3 expensive, so the
+   browser renders a small preview and thumbnail at upload time and stores them
+   beside the original. Their location is a pure function of the original key,
+   so no extra columns are needed to find them again.
+
+     uploads/<eventId>/<folder>/<ts>-<name>
+     uploads/<eventId>/<folder>/.derived/thumb/<ts>-<name>.jpg
+     uploads/<eventId>/<folder>/.derived/preview/<ts>-<name>.jpg
+
+   The ".derived" segment is never written to the database, so derivatives
+   never appear as files in their own right. */
+export type Derivative = "thumb" | "preview";
+
+export const derivativeKeyFor = (key: string, kind: Derivative) => {
+  const at = key.lastIndexOf("/");
+  if (at === -1) return `.derived/${kind}/${key}.jpg`;
+  return `${key.slice(0, at)}/.derived/${kind}/${key.slice(at + 1)}.jpg`;
+};
+
+export const derivativeUrlFor = (fileUrl: string, kind: Derivative) => {
+  const at = fileUrl.lastIndexOf("/");
+  if (at === -1) return null;
+  return `${fileUrl.slice(0, at)}/.derived/${kind}/${fileUrl.slice(at + 1)}.jpg`;
+};

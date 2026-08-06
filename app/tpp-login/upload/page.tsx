@@ -120,7 +120,8 @@ export default function PhotographerUploadPage() {
           body: JSON.stringify({
             eventId,
             fileName: item.file.name,
-            fileType: contentTypeOf(item.file)
+            fileType: contentTypeOf(item.file),
+            purpose: "media"
           })
         });
         if (!presignRes.ok) throw new Error("Could not get an upload link");
