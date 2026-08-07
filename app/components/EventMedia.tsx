@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { folderFromFileUrl, displayNameFromFileUrl, derivativeUrlFor } from "../../lib/uploadKey";
 import { makeDerivatives } from "../../lib/derivatives";
+import { uploadFile, MULTIPART_THRESHOLD } from "../../lib/upload-client";
 import { isArchived, daysUntilArchived } from "../../lib/archive";
 
 export type UploadRecord = {
@@ -11,6 +12,17 @@ export type UploadRecord = {
   fileType: string;
   createdAt: string;
   user: { id: string; name: string } | null;
+};
+
+type ActiveShare = {
+  id: string;
+  folder: string | null;
+  token: string;
+  expiresAt: string;
+  viewCount: number;
+  lastViewedAt: string | null;
+  createdAt: string;
+  creator: { name: string };
 };
 
 type Props = {
@@ -51,24 +63,6 @@ const fmtDate = (iso: string) => {
 const contentTypeOf = (file: File) => file.type || "application/octet-stream";
 const isImage = (t: string) => t.startsWith("image/");
 const isVideo = (t: string) => t.startsWith("video/");
-
-/* fetch() cannot report upload progress; XHR can, which is the whole
-   difference when someone is pushing 40GB of event video. */
-const putToS3 = (url: string, file: File, onProgress: (pct: number) => void) =>
-  new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", contentTypeOf(file));
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Storage refused the file (${xhr.status})`));
-    xhr.onerror = () => reject(new Error("Network error reaching storage"));
-    xhr.send(file);
-  });
 
 /* Dropped directories arrive as filesystem entries, not files. Walk them so a
    dragged folder keeps its structure instead of collapsing to a flat list. */
@@ -134,6 +128,8 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
   const [shareFolder, setShareFolder] = useState("");
   const [shareDays, setShareDays] = useState(7);
   const [shareLink, setShareLink] = useState("");
+  const [shares, setShares] = useState<ActiveShare[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [shareExpires, setShareExpires] = useState<number | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -267,7 +263,18 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     setNotice("");
 
     const queue = [...pending];
+    const batchBytes = pending.reduce((sum, i) => sum + i.file.size, 0);
     let failures = 0;
+
+    /* Fire-and-forget: the upload must not wait on an email server. */
+    const notify = (phase: "start" | "end", failed = 0) =>
+      fetch("/api/uploads/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, phase, fileCount: pending.length, totalBytes: batchBytes, failed })
+      }).catch(() => {});
+
+    void notify("start");
 
     const worker = async () => {
       for (;;) {
@@ -288,13 +295,25 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
             })
           });
           if (!presignRes.ok) throw new Error("Could not get an upload link");
-          const { uploadUrl, fileUrl, derivatives } = await presignRes.json();
+          const { uploadUrl, fileUrl: simpleUrl, derivatives } = await presignRes.json();
 
           /* Shrink here, in the browser, before anything leaves the machine.
              Galleries then read kilobytes instead of the full original. */
           const small = await makeDerivatives(item.file);
 
-          await putToS3(uploadUrl, item.file, (pct) => patch(item.id, { pct }));
+          /* Small files go up in one PUT; anything larger is split into parts so
+             a dropped connection costs one chunk instead of the whole file. */
+          const fileUrl = await uploadFile(
+            item.file,
+            {
+              eventId,
+              relativePath: item.path,
+              purpose: "media",
+              presignedUrl: uploadUrl,
+              fileUrl: simpleUrl
+            },
+            (pct) => patch(item.id, { pct })
+          );
 
           // Best effort: a missing thumbnail only means the viewer falls back.
           await Promise.all(
@@ -328,6 +347,7 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, queue.length) }, worker));
 
     setBusy(false);
+    void notify("end", failures);
     const ok = pending.length - failures;
     setNotice(
       failures === 0
@@ -359,6 +379,20 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     }
   };
 
+  const loadShares = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/share?eventId=${encodeURIComponent(eventId)}`);
+      if (res.ok) setShares(await res.json());
+    } catch {
+      /* the create form still works without the list */
+    }
+  }, [eventId]);
+
+  const openShare = () => {
+    setShareOpen(true);
+    void loadShares();
+  };
+
   const createShareLink = async () => {
     setShareBusy(true);
     setCopied(false);
@@ -372,11 +406,27 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
       const { token, expires } = await res.json();
       setShareLink(`${window.location.origin}/share/${token}`);
       setShareExpires(expires);
+      void loadShares();
     } catch {
       setShareLink("");
       setShareExpires(null);
     } finally {
       setShareBusy(false);
+    }
+  };
+
+  const revokeShare = async (id: string) => {
+    await fetch(`/api/share?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+    void loadShares();
+  };
+
+  const copyExisting = async (token: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/share/${token}`);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2500);
+    } catch {
+      /* nothing useful to say */
     }
   };
 
@@ -417,13 +467,13 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
             className="btn-outline"
             type="button"
             onClick={() => {
-              setShareOpen(true);
+              openShare();
               setShareLink("");
               setShareExpires(null);
             }}
             disabled={uploads.length === 0}
           >
-            Create client link
+            Client links
           </button>
         </div>
       </div>
@@ -467,8 +517,11 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
               onDragLeave={() => setDragging(false)}
               onDrop={onDrop}
             >
-              <strong>Drop photos, videos or whole folders here</strong>
-              <span className="muted">Folder structure is kept, and everything goes straight to secure storage.</span>
+              <strong>Drop photos, videos, folders or a ZIP here</strong>
+              <span className="muted">
+                Folder structure is kept, and everything goes straight to secure storage. Large files upload in
+                parts, so a dropped connection retries that part rather than starting over.
+              </span>
               <div className="claims-actions" style={{ justifyContent: "center", marginTop: 4 }}>
                 <button className="btn-outline" type="button" disabled={busy} onClick={() => fileRef.current?.click()}>
                   Select files
@@ -483,7 +536,7 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
               ref={fileRef}
               type="file"
               multiple
-              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
+              accept="image/*,video/*,.zip,.rar,.7z,.pdf,.doc,.docx,.xls,.xlsx"
               style={{ display: "none" }}
               onChange={(e) => {
                 fromInput(e.target.files);
@@ -513,7 +566,10 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
                       {item.path && <span className="uploader-path">{item.path}/</span>}
                       {item.file.name}
                     </span>
-                    <span className="uploader-size">{formatBytes(item.file.size)}</span>
+                    <span className="uploader-size">
+                      {formatBytes(item.file.size)}
+                      {item.file.size > MULTIPART_THRESHOLD && <span className="uploader-parts"> · in parts</span>}
+                    </span>
                     <span className="uploader-state">
                       {item.status === "queued" && "Queued"}
                       {item.status === "uploading" && `${item.pct}%`}
@@ -638,9 +694,39 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
         <div className="modal-overlay" onClick={() => setShareOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="claims-header">
-              <h3>Create client link</h3>
+              <h3>Client links</h3>
               <button className="link-button" type="button" onClick={() => setShareOpen(false)}>Close</button>
             </div>
+
+            {/* Existing links come first, so the reflex is to reuse rather than mint another */}
+            {shares.length > 0 && (
+              <div className="share-list">
+                <div className="share-list-head">Active links</div>
+                {shares.map((s) => {
+                  const daysLeft = Math.max(0, Math.ceil((new Date(s.expiresAt).getTime() - Date.now()) / 86_400_000));
+                  return (
+                    <div key={s.id} className="share-row">
+                      <div className="share-row-main">
+                        <strong>{s.folder || "Whole event"}</strong>
+                        <span className="muted">
+                          {s.creator.name} · expires in {daysLeft} day{daysLeft !== 1 ? "s" : ""} ·{" "}
+                          {s.viewCount === 0 ? "not opened yet" : `opened ${s.viewCount}×`}
+                        </span>
+                      </div>
+                      <div className="share-row-actions">
+                        <button className="edit-btn" type="button" onClick={() => copyExisting(s.token, s.id)}>
+                          {copiedId === s.id ? "Copied" : "Copy"}
+                        </button>
+                        <button className="edit-btn" type="button" onClick={() => revokeShare(s.id)}>
+                          Revoke
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <p className="muted">
               Anyone with the link can view and download this media. No sign-in, and nothing else about the
               event is shown.

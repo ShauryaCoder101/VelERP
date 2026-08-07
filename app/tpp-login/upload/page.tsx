@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { uploadFile, MULTIPART_THRESHOLD } from "../../../lib/upload-client";
 
 type EventOption = {
   id: string;
@@ -30,25 +31,6 @@ const formatBytes = (n: number) => {
    or S3 rejects the PUT. Some cameras hand us files with an empty type,
    so both sides agree on this fallback. */
 const contentTypeOf = (file: File) => file.type || "application/octet-stream";
-
-/* fetch() cannot report upload progress; XHR can. For multi-gigabyte video
-   that difference is the whole experience. */
-const putToS3 = (url: string, file: File, onProgress: (pct: number) => void) =>
-  new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", contentTypeOf(file));
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Storage refused the file (${xhr.status})`));
-    xhr.onerror = () => reject(new Error("Network error reaching storage"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
-    xhr.send(file);
-  });
 
 export default function PhotographerUploadPage() {
   const [events, setEvents] = useState<EventOption[]>([]);
@@ -110,6 +92,16 @@ export default function PhotographerUploadPage() {
     setNotice("");
     let failures = 0;
 
+    const batchBytes = pending.reduce((sum, i) => sum + i.file.size, 0);
+    const notify = (phase: "start" | "end", failed = 0) =>
+      fetch("/api/uploads/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, phase, fileCount: pending.length, totalBytes: batchBytes, failed })
+      }).catch(() => {});
+
+    void notify("start");
+
     // One bad file must not strand the rest of the shoot.
     for (const item of pending) {
       patch(item.id, { status: "uploading", pct: 0, error: undefined });
@@ -126,8 +118,15 @@ export default function PhotographerUploadPage() {
         });
         if (!presignRes.ok) throw new Error("Could not get an upload link");
 
-        const { uploadUrl, fileUrl } = await presignRes.json();
-        await putToS3(uploadUrl, item.file, (pct) => patch(item.id, { pct }));
+        const { uploadUrl, fileUrl: simpleUrl } = await presignRes.json();
+
+        /* Multi-gigabyte video is the norm here, so anything large is split
+           into parts — a dropped connection retries one chunk, not the file. */
+        const fileUrl = await uploadFile(
+          item.file,
+          { eventId, relativePath: "", purpose: "media", presignedUrl: uploadUrl, fileUrl: simpleUrl },
+          (pct) => patch(item.id, { pct })
+        );
 
         const recordRes = await fetch("/api/uploads", {
           method: "POST",
@@ -144,6 +143,7 @@ export default function PhotographerUploadPage() {
     }
 
     setBusy(false);
+    void notify("end", failures);
     setNotice(
       failures === 0
         ? `${pending.length} file${pending.length !== 1 ? "s" : ""} uploaded.`
@@ -184,7 +184,7 @@ export default function PhotographerUploadPage() {
           className="input-file"
           type="file"
           multiple
-          accept="image/*,video/*"
+          accept="image/*,video/*,.zip,.rar,.7z"
           disabled={busy}
           onChange={(e) => {
             addFiles(e.target.files);
@@ -201,7 +201,10 @@ export default function PhotographerUploadPage() {
             {items.map((item) => (
               <div key={item.id} className={`uploader-row uploader-${item.status}`}>
                 <span className="uploader-name" title={item.file.name}>{item.file.name}</span>
-                <span className="uploader-size">{formatBytes(item.file.size)}</span>
+                <span className="uploader-size">
+                  {formatBytes(item.file.size)}
+                  {item.file.size > MULTIPART_THRESHOLD && <span className="uploader-parts"> · in parts</span>}
+                </span>
                 <span className="uploader-state">
                   {item.status === "queued" && "Queued"}
                   {item.status === "uploading" && `${item.pct}%`}

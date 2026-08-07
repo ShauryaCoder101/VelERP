@@ -1,5 +1,6 @@
 import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
+import { sendTaskAssignedEmail } from "../../../lib/email";
 
 export async function GET(request: Request) {
   const { id: userId } = await getRequestUser(request);
@@ -25,7 +26,27 @@ export async function POST(request: Request) {
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       assignedBy: userId,
       assignedTo: body.assignedTo
+    },
+    include: {
+      assignedToUser: { select: { name: true, email: true } },
+      assignedByUser: { select: { name: true } }
     }
   });
+
+  /* Tell the assignee straight away rather than waiting for the daily digest.
+     Awaited so a send failure is logged during the request, but it can never
+     fail the response — the task exists either way. Assigning something to
+     yourself does not warrant an email. */
+  if (task.assignedTo !== userId && task.assignedToUser?.email) {
+    await sendTaskAssignedEmail({
+      to: task.assignedToUser.email,
+      assigneeName: task.assignedToUser.name,
+      assignerName: task.assignedByUser.name,
+      title: task.title,
+      notes: task.notes,
+      dueDate: task.dueDate
+    });
+  }
+
   return Response.json(task);
 }

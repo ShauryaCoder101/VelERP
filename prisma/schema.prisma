@@ -71,6 +71,7 @@ model User {
   assignedLeads    Lead[]            @relation("LeadAssignedTo")
   assignedDeals    Deal[]            @relation("DealAssignedTo")
   sanctions        EventSanction[]   @relation("UserSanctions")
+  mediaShares      MediaShare[]      @relation("MediaShareCreatedBy")
 }
 
 model Session {
@@ -105,6 +106,7 @@ model Event {
   claims      ExpenseClaim[]
   finances    EventVendorFinance[]
   sanctions   EventSanction[]
+  shares      MediaShare[]
 }
 
 model Vendor {
@@ -429,4 +431,27 @@ model Notification {
   createdAt DateTime @default(now())
 
   actor User @relation("NotificationActor", fields: [actorId], references: [id])
+}
+
+/// A client delivery link. Tokens stay self-verifying, but recording them here
+/// is what makes them listable, revocable, and countable — without this, staff
+/// cannot see an existing link and simply mint another.
+model MediaShare {
+  id           String    @id @default(uuid())
+  eventId      String
+  folder       String?
+  token        String    @unique
+  createdBy    String
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+  remindedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  event   Event @relation(fields: [eventId], references: [id])
+  creator User  @relation("MediaShareCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([eventId])
+  @@index([expiresAt])
 }

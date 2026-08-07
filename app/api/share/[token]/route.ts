@@ -17,6 +17,37 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
     return Response.json({ error: "This link is invalid or has expired." }, { status: 410 });
   }
 
+  /* The signature alone is enough to open a link — links issued before tracking
+     existed have no row and must keep working. But if a row is present and has
+     been revoked, that wins over the signature.
+
+     The lookup is deliberately fault-tolerant: if the MediaShare table is not
+     there yet (code deployed ahead of the migration), a client opening their
+     gallery must not see an error page. Tracking is the thing that degrades,
+     never the delivery. */
+  let record: { id: string; revokedAt: Date | null } | null = null;
+  try {
+    record = await prisma.mediaShare.findUnique({
+      where: { token },
+      select: { id: true, revokedAt: true }
+    });
+  } catch {
+    record = null;
+  }
+
+  if (record?.revokedAt) {
+    return Response.json({ error: "This link has been withdrawn." }, { status: 410 });
+  }
+  if (record) {
+    // Best effort: a failed counter must never stop a client seeing their photos.
+    prisma.mediaShare
+      .update({
+        where: { id: record.id },
+        data: { viewCount: { increment: 1 }, lastViewedAt: new Date() }
+      })
+      .catch(() => {});
+  }
+
   const event = await prisma.event.findUnique({
     where: { id: payload.e },
     select: {
