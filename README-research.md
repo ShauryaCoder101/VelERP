@@ -1,5 +1,11 @@
 # Research module (phase 1 — backend)
 
+> **Scheduling on Vercel Hobby:** Hobby projects only allow one cron run per day, and a
+> `vercel.json` with a minute-level schedule makes the whole deployment fail. This branch
+> therefore ships **no** `vercel.json`. Schedule the tick from Supabase instead: run
+> `sql/research_cron_pgcron.sql` (fill in the app URL and `CRON_SECRET`). On a Pro plan you may
+> add a `vercel.json` cron for `/api/research/cron/tick` with `* * * * *` instead.
+
 An event-idea research pipeline living inside the ERP. It listens to public
 sources (Reddit, industry RSS, staff clips, and live web search), uses Gemini to
 pull out reusable **event / activation ideas** into a structured schema, embeds
