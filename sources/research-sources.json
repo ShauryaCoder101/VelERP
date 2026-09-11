@@ -1,0 +1,442 @@
+[
+  {
+    "kind": "reddit",
+    "identifier": "eventplanning",
+    "label": "r/eventplanning - general event planning Q&A",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 50
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "EventProduction",
+    "label": "r/EventProduction - production and logistics professionals",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 50
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "experientialmarketing",
+    "label": "r/experientialmarketing - brand activations and experiences",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 50
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "teambuilding",
+    "label": "r/teambuilding - team building activities",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 50
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "humanresources",
+    "label": "r/humanresources - HR, engagement and employee events",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 50
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "marketing",
+    "label": "r/marketing - campaign and launch thinking",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "AskMarketing",
+    "label": "r/AskMarketing - campaign ideas in the answers",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "advertising",
+    "label": "r/advertising - creative and stunt campaigns",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "Design",
+    "label": "r/Design - visual and spatial design",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "InteriorDesign",
+    "label": "r/InteriorDesign - space, styling and set dressing",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "DIY",
+    "label": "r/DIY - buildable props and installations",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "festivals",
+    "label": "r/festivals - festival formats and crowd experiences",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "BurningMan",
+    "label": "r/BurningMan - large-scale participatory art",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "escaperooms",
+    "label": "r/escaperooms - puzzle and immersive game design",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "boardgames",
+    "label": "r/boardgames - mechanics that adapt to group activities",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "partyplanning",
+    "label": "r/partyplanning - party formats that scale to corporate",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "weddingplanning",
+    "label": "r/weddingplanning - decor, catering and guest experience",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "ProductManagement",
+    "label": "r/ProductManagement - product launch events",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "livesound",
+    "label": "r/livesound - live audio production",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "lightingdesign",
+    "label": "r/lightingdesign - lighting and atmosphere",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "techtheatre",
+    "label": "r/techtheatre - staging, rigging and AV craft",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "crafts",
+    "label": "r/crafts - hands-on making activities",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "somethingimade",
+    "label": "r/somethingimade - fabrication and props",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "cocktails",
+    "label": "r/cocktails - bar programmes and tastings",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "improv",
+    "label": "r/improv - facilitation games and warm-ups",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "LARP",
+    "label": "r/LARP - immersive role-play formats",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "puzzles",
+    "label": "r/puzzles - puzzle hunts and group challenges",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "reddit",
+    "identifier": "Entrepreneur",
+    "label": "r/Entrepreneur - offsites, launches and small-budget events",
+    "pollIntervalMin": 120,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.bizbash.com/rss.xml",
+    "label": "BizBash",
+    "pollIntervalMin": 180,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://meetings.skift.com/feed/",
+    "label": "Skift Meetings (formerly Event Manager Blog)",
+    "pollIntervalMin": 240,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.specialevents.com/rss.xml",
+    "label": "Special Events / Catersource",
+    "pollIntervalMin": 240,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.eventindustrynews.com/feed",
+    "label": "Event Industry News",
+    "pollIntervalMin": 240,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.conference-news.co.uk/feed",
+    "label": "Conference News",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://accessaa.co.uk/feed/",
+    "label": "Access All Areas - live events",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.meetingstoday.com/rss.xml",
+    "label": "Meetings Today",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.tsnn.com/rss.xml",
+    "label": "TSNN - trade show news",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.pcma.org/feed/",
+    "label": "PCMA - business events",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.eventtechlive.com/feed/",
+    "label": "Event Tech Live",
+    "pollIntervalMin": 720,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.eventfaqs.com/rss",
+    "label": "EVENTFAQS India - domestic activations",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 40
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.thisiscolossal.com/feed/",
+    "label": "Colossal - art installations",
+    "pollIntervalMin": 720,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.dezeen.com/feed/",
+    "label": "Dezeen - architecture and installation design",
+    "pollIntervalMin": 720,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.designboom.com/feed/",
+    "label": "designboom - design and installations",
+    "pollIntervalMin": 720,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.creativereview.co.uk/feed/",
+    "label": "Creative Review - creative and branding work",
+    "pollIntervalMin": 720,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  },
+  {
+    "kind": "rss",
+    "identifier": "https://www.adweek.com/feed/",
+    "label": "Adweek - brand campaigns and stunts",
+    "pollIntervalMin": 360,
+    "enabled": true,
+    "settings": {
+      "limit": 30
+    }
+  }
+]
