@@ -1,11 +1,23 @@
 import { prisma } from "../../../../lib/db";
 import { badRequest, forbidden, requireResearchUser } from "../../../../lib/research/guard";
+import { runTick } from "../../../../lib/research/tick";
 
 /* Operational view: what the pipeline has ingested, skipped and choked on, plus
    the two blunt instruments - requeue everything that failed, and re-triage
-   everything the gate threw away (used after the triage prompt changes). */
+   everything the gate threw away (used after the triage prompt changes) - and a
+   "run a tick now" nudge.
 
+   The nudge exists because the cron heartbeat needs CRON_SECRET, which a browser
+   must never hold. This route is already behind the ERP session, so it can call
+   the same tick function directly; it just gets a shorter budget, because a
+   person is watching it spin. */
+
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
+
+/** Wall clock for an operator-triggered tick. Shorter than the cron's. */
+const NUDGE_BUDGET_MS = 30_000;
+const NUDGE_PROCESS_MS = 22_000;
 
 const RECENT_LIMIT = 20;
 const RECENT_REJECTED_LIMIT = 30;
@@ -101,5 +113,22 @@ export async function POST(request: Request) {
     return Response.json({ requeued: result.count });
   }
 
-  return badRequest("action must be 'retry-failed' or 'retriage'");
+  if (action === "tick") {
+    console.info(`[research] ${user.name || user.id} ran a tick by hand`);
+    try {
+      const summary = await runTick({
+        budgetMs: NUDGE_BUDGET_MS,
+        processDeadlineMs: NUDGE_PROCESS_MS
+      });
+      return Response.json({ tick: summary });
+    } catch (error) {
+      console.error("[research] hand-run tick failed", error);
+      return Response.json(
+        { error: `${error instanceof Error ? error.name : "Error"}: ${String(error)}` },
+        { status: 500 }
+      );
+    }
+  }
+
+  return badRequest("action must be 'retry-failed', 'retriage' or 'tick'");
 }

@@ -2,7 +2,7 @@ import { prisma } from "../../../../../lib/db";
 import { forbidden, notFound, requireResearchUser } from "../../../../../lib/research/guard";
 import { jobIdeaIds } from "../../../../../lib/research/jobs";
 import { rankIdeas } from "../../../../../lib/research/search";
-import { hitToJson } from "../../../../../lib/research/serialize";
+import { firstSourceLinks, hitToJson } from "../../../../../lib/research/serialize";
 
 /* Where the job is, what it has cost, and (once done) what it found.
 
@@ -37,6 +37,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const newIdeas = hits.filter((hit) => createdSet.has(hit.idea.id));
   const strengthenedIdeas = hits.filter((hit) => !createdSet.has(hit.idea.id));
 
+  /* Where each idea came from, so the panel's cards can link out. */
+  const links = await firstSourceLinks(hits.map((hit) => hit.idea.id));
+  const json = (hit: (typeof hits)[number]) => hitToJson(hit, links.get(hit.idea.id) ?? null);
+
   return Response.json({
     jobId: job.id,
     status: job.status,
@@ -50,8 +54,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     createdAt: job.createdAt.toISOString(),
     startedAt: job.startedAt?.toISOString() ?? null,
     finishedAt: job.finishedAt?.toISOString() ?? null,
-    ideas: hits.map(hitToJson),
-    new_ideas: newIdeas.map(hitToJson),
-    strengthened_ideas: strengthenedIdeas.map(hitToJson)
+    ideas: hits.map(json),
+    new_ideas: newIdeas.map(json),
+    strengthened_ideas: strengthenedIdeas.map(json)
   });
 }

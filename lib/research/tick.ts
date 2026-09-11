@@ -49,11 +49,21 @@ const isDue = (source: { lastPolledAt: Date | null; pollIntervalMin: number }, n
   return now.getTime() - source.lastPolledAt.getTime() >= interval;
 };
 
-export async function runTick(): Promise<TickSummary> {
+/** A shorter tick than the cron's, for the "run a tick now" button on the admin
+    screen: that route has a smaller maxDuration and a person is waiting on it.
+    An override may only shrink the budget, never grow it. */
+export type TickOverrides = { budgetMs?: number; processDeadlineMs?: number };
+
+export async function runTick(overrides: TickOverrides = {}): Promise<TickSummary> {
   const started = Date.now();
   const config = tickConfig();
-  const deadline = started + config.budgetMs;
-  const processDeadline = started + config.processDeadlineMs;
+  const budgetMs = Math.min(overrides.budgetMs ?? config.budgetMs, config.budgetMs);
+  const processDeadlineMs = Math.min(
+    overrides.processDeadlineMs ?? config.processDeadlineMs,
+    budgetMs
+  );
+  const deadline = started + budgetMs;
+  const processDeadline = started + processDeadlineMs;
   const notes: string[] = [];
 
   const budget = new RedditBudget();

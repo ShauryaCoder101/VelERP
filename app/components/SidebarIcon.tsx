@@ -95,6 +95,14 @@ const icons: Record<string, ReactNode> = {
       <path d="M9 12l2 2 4-4" />
     </svg>
   ),
+  research: (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <line x1="15.8" y1="15.8" x2="21" y2="21" />
+      <path d="M8.6 9.8a1.9 1.9 0 113.2 1.6v1h-1.3v-1" />
+      <line x1="9.7" y1="13.6" x2="11.3" y2="13.6" />
+    </svg>
+  ),
 };
 
 export default function SidebarIcon({ name }: { name: string }) {

@@ -1,7 +1,7 @@
 import { createJob } from "../../../../lib/research/jobs";
 import { badRequest, forbidden, requireResearchUser } from "../../../../lib/research/guard";
 import { activeFilters, normaliseFilters, search } from "../../../../lib/research/search";
-import { hitToJson } from "../../../../lib/research/serialize";
+import { firstSourceLinks, hitToJson } from "../../../../lib/research/serialize";
 
 /* Search the library. Every filter is optional and blank means "don't care";
    an idea is only ever excluded by a field it actually carries.
@@ -45,11 +45,13 @@ export async function POST(request: Request) {
     jobId = job.id;
   }
 
+  const links = await firstSourceLinks(result.ideas.map((hit) => hit.idea.id));
+
   return Response.json({
     searchId: result.searchId,
     jobId,
     answer: result.answer,
     count: result.ideas.length,
-    ideas: result.ideas.map(hitToJson)
+    ideas: result.ideas.map((hit) => hitToJson(hit, links.get(hit.idea.id) ?? null))
   });
 }
