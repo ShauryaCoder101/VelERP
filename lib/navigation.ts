@@ -20,7 +20,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Events", href: "/events", minLevel: 3, icon: "events" },
       { label: "Vendor Management", href: "/vendor-management", minLevel: 3, icon: "vendors" },
       { label: "Artist Onboarding", href: "/artist-onboarding", minLevel: 3, icon: "artists" },
-      { label: "Event Uploads", href: "/event-uploads", minLevel: 3, icon: "uploads" }
+      { label: "Event Uploads", href: "/event-uploads", minLevel: 3, icon: "uploads" },
+      { label: "Research", href: "/research", minLevel: 4, icon: "research" }
     ]
   },
   {

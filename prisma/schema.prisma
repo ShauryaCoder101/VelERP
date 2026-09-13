@@ -455,3 +455,264 @@ model MediaShare {
   @@index([eventId])
   @@index([expiresAt])
 }
+
+// ---------------------------------------------------------------------------
+// Research module (phase 1)
+//
+// A port of the standalone VelResearchTool pipeline. Every descriptive field on
+// ResearchIdea is nullable on purpose: the extractor leaves a field null rather
+// than guessing, and search filters are null-tolerant.
+//
+// The embedding column is pgvector and therefore Unsupported() here: it is read
+// and written with parameterised $queryRaw / $executeRaw only.
+// ---------------------------------------------------------------------------
+
+enum ResearchSourceKind {
+  reddit
+  youtube
+  rss
+  clip
+  web
+}
+
+enum ResearchPostStatus {
+  new
+  awaiting_comments
+  skipped
+  rejected
+  extracted
+  failed
+}
+
+enum ResearchIdeaStatus {
+  active
+  merged
+  rejected
+}
+
+enum ResearchScopeCategory {
+  activation
+  marketing_activation
+  crowd_engagement
+  event_technology
+  captivating_activity
+}
+
+enum ResearchInteractionMode {
+  one_to_one
+  one_to_many
+  many_to_many
+  self_guided
+}
+
+enum ResearchSetting {
+  indoor
+  outdoor
+  hybrid
+  virtual
+}
+
+enum ResearchBudgetBand {
+  low
+  medium
+  high
+  premium
+}
+
+enum ResearchIntensity {
+  low
+  medium
+  high
+}
+
+enum ResearchJobStatus {
+  queued
+  running
+  done
+  failed
+}
+
+enum ResearchJobStage {
+  expanding
+  web
+  reddit
+  processing
+}
+
+model ResearchSource {
+  id              String             @id @default(uuid())
+  kind            ResearchSourceKind
+  identifier      String
+  label           String?
+  enabled         Boolean            @default(true)
+  pollIntervalMin Int                @default(60)
+  lastPolledAt    DateTime?
+  // Set when Reddit answers 429/403: no request goes out until it passes.
+  backoffUntil    DateTime?
+  settings        Json?
+  createdAt       DateTime           @default(now())
+
+  posts ResearchPost[]
+
+  @@unique([kind, identifier])
+}
+
+model ResearchPost {
+  id          String             @id @default(uuid())
+  sourceId    String?
+  kind        ResearchSourceKind
+  externalId  String
+  url         String?
+  author      String?
+  title       String?
+  body        String?
+  comments    Json?
+  mediaUrls   Json?
+  engagement  Json?
+  postedAt    DateTime?
+  fetchedAt   DateTime           @default(now())
+  status      ResearchPostStatus @default(new)
+  triage      Json?
+  extraction  Json?
+  error       String?
+  processedAt DateTime?
+
+  source    ResearchSource?      @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  ideaLinks ResearchIdeaSource[]
+  jobLinks  ResearchJobPost[]
+
+  @@unique([kind, externalId])
+  @@index([status])
+  @@index([sourceId])
+}
+
+model ResearchIdea {
+  id                    String                      @id @default(uuid())
+  scopeCategory         ResearchScopeCategory?
+  title                 String?
+  summary               String?
+  howItWorks            String?
+  eventTypes            String[]
+  formats               String[]
+  interactionMode       ResearchInteractionMode?
+  audienceMin           Int?
+  audienceMax           Int?
+  minutesPerParticipant Decimal?
+  totalDurationMinutes  Decimal?
+  setting               ResearchSetting?
+  spaceRequirements     String?
+  techRequirements      String?
+  staffing              String?
+  staffCount            Int?
+  setupTimeMinutes      Decimal?
+  materials             String?
+  budgetBand            ResearchBudgetBand?
+  budgetNotes           String?
+  audienceTypes         String[]
+  ageGroup              String?
+  brandable             Boolean?
+  physicalIntensity     ResearchIntensity?
+  region                String?
+  occasion              String?
+  tags                  String[]
+  attributes            Json?
+  confidence            Json?
+  // vector(768); an HNSW cosine index lives in sql/research_module.sql.
+  embedding             Unsupported("vector(768)")?
+  popularityScore       Decimal                     @default(0)
+  sourceCount           Int                         @default(0)
+  firstSeenAt           DateTime?
+  lastSeenAt            DateTime?
+  status                ResearchIdeaStatus          @default(active)
+  mergedIntoId          String?
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+
+  sources    ResearchIdeaSource[]
+  jobLinks   ResearchJobIdea[]
+  mergedInto ResearchIdea?        @relation("ResearchIdeaMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom ResearchIdea[]       @relation("ResearchIdeaMerge")
+
+  @@index([status])
+  @@index([scopeCategory])
+  @@index([eventTypes(ops: ArrayOps)], type: Gin)
+  @@index([tags(ops: ArrayOps)], type: Gin)
+}
+
+model ResearchIdeaSource {
+  ideaId          String
+  postId          String
+  extractionIndex Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  idea ResearchIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  post ResearchPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([ideaId, postId, extractionIndex])
+  @@index([postId])
+}
+
+model ResearchSearch {
+  id            String   @id @default(uuid())
+  needText      String?
+  filters       Json?
+  resultIdeaIds Json?
+  answer        String?
+  userId        String?
+  createdAt     DateTime @default(now())
+
+  jobs ResearchJob[]
+
+  @@index([createdAt])
+}
+
+model ResearchJob {
+  id         String            @id @default(uuid())
+  needText   String?
+  filters    Json?
+  searchId   String?
+  status     ResearchJobStatus @default(queued)
+  stage      ResearchJobStage?
+  stats      Json?
+  // Stepper bookkeeping: which queries / urls / posts are still outstanding.
+  state      Json?
+  error      String?
+  userId     String?
+  // Held by the tick that is advancing this job; older than 3 minutes is stale.
+  lockedAt   DateTime?
+  createdAt  DateTime          @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  search ResearchSearch?   @relation(fields: [searchId], references: [id], onDelete: SetNull)
+  posts  ResearchJobPost[]
+  ideas  ResearchJobIdea[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ResearchJobPost {
+  jobId     String
+  postId    String
+  createdAt DateTime @default(now())
+
+  job  ResearchJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  post ResearchPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, postId])
+  @@index([postId])
+}
+
+model ResearchJobIdea {
+  jobId     String
+  ideaId    String
+  created   Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  job  ResearchJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  idea ResearchIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, ideaId])
+  @@index([ideaId])
+}
