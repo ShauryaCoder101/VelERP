@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ResearchNav from "../../../../components/research/ResearchNav";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ResearchPanel from "../../../../components/research/ResearchPanel";
@@ -76,6 +77,8 @@ export default function ResearchJobPage() {
         <h1>Research job</h1>
         <p>{need || "No need text was recorded for this job."}</p>
       </section>
+
+      <ResearchNav />
 
       {error ? <p className="rs-error">{error}</p> : null}
 

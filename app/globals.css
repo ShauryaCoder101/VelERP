@@ -2819,6 +2819,55 @@ select[multiple].input { min-height: 120px; background-image: none; }
 
 .rs-hint { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 
+/* ── Module tabs ──
+   One strip under the masthead, on every research screen. Inactive tabs are
+   full-strength ink at normal weight — grey-on-grey is how the old link row
+   became invisible — and the current one is bold with the red rule under it.
+   44px tall so it is a real touch target, and it wraps rather than scrolls. */
+
+.rs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  /* .content is a 20px-gap flex column; pull the strip back up so it reads as
+     part of the masthead rather than as a floating row. */
+  margin: -12px 0 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.rs-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--t), border-color var(--t), background var(--t);
+}
+
+.rs-tab:hover {
+  color: var(--red-deep);
+  background: var(--gray-50);
+}
+
+.rs-tab.active {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--red);
+}
+
+.rs-tab:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
 /* ── Chips ── */
 
 .rs-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }

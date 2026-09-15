@@ -1,5 +1,11 @@
 import { prisma } from "../../../../lib/db";
-import { badRequest, forbidden, requireResearchUser } from "../../../../lib/research/guard";
+import {
+  badRequest,
+  forbidden,
+  isManagingDirector,
+  managingDirectorOnly,
+  requireResearchUser
+} from "../../../../lib/research/guard";
 import { runTick } from "../../../../lib/research/tick";
 
 /* Operational view: what the pipeline has ingested, skipped and choked on, plus
@@ -10,7 +16,11 @@ import { runTick } from "../../../../lib/research/tick";
    The nudge exists because the cron heartbeat needs CRON_SECRET, which a browser
    must never hold. This route is already behind the ERP session, so it can call
    the same tick function directly; it just gets a shorter budget, because a
-   person is watching it spin. */
+   person is watching it spin.
+
+   Managing Director only, both verbs. Requeueing thousands of posts or running
+   a tick by hand spends real Gemini budget and hammers Reddit from our IP, so
+   the rest of the ERP does not get to do it - and the tab is hidden for them. */
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -51,6 +61,7 @@ const recentTriaged = (accepted: boolean, take: number) =>
 export async function GET(request: Request) {
   const user = await requireResearchUser(request);
   if (!user) return forbidden();
+  if (!isManagingDirector(user)) return managingDirectorOnly();
 
   const [postCounts, ideaCounts, failed, rejected, accepted, searches, jobs] = await Promise.all([
     prisma.researchPost.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -85,6 +96,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await requireResearchUser(request);
   if (!user) return forbidden();
+  if (!isManagingDirector(user)) return managingDirectorOnly();
 
   let body: Record<string, unknown> = {};
   try {

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import IdeaCard from "../../components/research/IdeaCard";
+import ResearchNav from "../../components/research/ResearchNav";
 import ResearchPanel from "../../components/research/ResearchPanel";
 import {
   BUDGET_BANDS,
@@ -245,6 +246,8 @@ export default function ResearchSearchPage() {
           closest matches — no keywords, no field-by-field form filling.
         </p>
       </section>
+
+      <ResearchNav />
 
       <section className="panel">
         <form onSubmit={onSubmit} autoComplete="off">
@@ -604,11 +607,6 @@ export default function ResearchSearchPage() {
 
       <p className="rs-hint" style={{ marginTop: 20 }}>
         or <Link href="/research/browse">browse everything</Link>
-      </p>
-      <p className="rs-hint" style={{ marginTop: 6 }}>
-        <Link href="/research/clip">Add a clip</Link> · <Link href="/research/sources">Sources</Link>{" "}
-        · <Link href="/research/log">Research log</Link> ·{" "}
-        <Link href="/research/admin">Admin</Link>
       </p>
     </>
   );

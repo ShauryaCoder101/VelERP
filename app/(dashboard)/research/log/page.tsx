@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ResearchNav from "../../../components/research/ResearchNav";
 import Link from "next/link";
 import { humanise, when } from "../../../components/research/format";
 
@@ -146,6 +147,8 @@ export default function ResearchLogPage() {
         <h1>Research log</h1>
         <p>Every time the tool went outside the library: what it searched for and what it brought back.</p>
       </section>
+
+      <ResearchNav />
 
       {error ? <p className="rs-error">{error}</p> : null}
 

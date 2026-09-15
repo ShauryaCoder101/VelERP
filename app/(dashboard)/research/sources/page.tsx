@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ResearchNav from "../../../components/research/ResearchNav";
 import { humanise, when } from "../../../components/research/format";
 
 /* What the tool listens to.
@@ -156,6 +157,8 @@ export default function SourcesPage() {
           <p>What the tool listens to.</p>
         </div>
       </section>
+
+      <ResearchNav />
 
       {error && <p className="rs-error">{error}</p>}
 

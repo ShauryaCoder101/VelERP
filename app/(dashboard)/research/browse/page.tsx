@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ResearchNav from "../../../components/research/ResearchNav";
 import IdeaCard from "../../../components/research/IdeaCard";
 import {
   SOURCE_KINDS,
@@ -245,6 +246,8 @@ export default function BrowsePage() {
           <p>Every accepted idea in the library. No search needed.</p>
         </div>
       </section>
+
+      <ResearchNav />
 
       <div className="rs-browse">
         <aside className="panel rs-browse-filters">

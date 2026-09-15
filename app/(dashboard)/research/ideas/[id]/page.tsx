@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
+import ResearchNav from "../../../../components/research/ResearchNav";
 import {
   BUDGET_BANDS,
   INTERACTION_MODES,
@@ -290,6 +291,7 @@ export default function IdeaDetailPage({ params }: { params: Promise<{ id: strin
         <section className="page-header">
           <div className="skeleton skeleton-text medium" style={{ height: 26, width: 320 }} />
         </section>
+        <ResearchNav />
         <div className="panel">
           <div className="skeleton skeleton-text long" />
           <div className="skeleton skeleton-text long" />
@@ -311,6 +313,7 @@ export default function IdeaDetailPage({ params }: { params: Promise<{ id: strin
             <h1>Idea</h1>
           </div>
         </section>
+        <ResearchNav />
         <p className="rs-error">{error ?? "Could not load this idea."}</p>
       </>
     );
@@ -342,6 +345,8 @@ export default function IdeaDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
       </section>
+
+      <ResearchNav />
 
       <section className="panel">
         <div className="panel-header">

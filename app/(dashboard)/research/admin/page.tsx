@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import ResearchNav from "../../../components/research/ResearchNav";
+import { useCurrentUser } from "../../../components/research/useCurrentUser";
 import { dash, humanise, when } from "../../../components/research/format";
 
 /* The operational view: what the pipeline has ingested, skipped and choked on.
@@ -233,10 +236,22 @@ export default function ResearchAdminPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [tick, setTick] = useState<Tick | null>(null);
 
+  /* This screen is the Managing Director's. Until we know who is asking we show
+     the skeleton and call nothing; anyone else gets told, and the API is never
+     touched. `denied` covers the same answer arriving from the server — a role
+     changed mid-session, or someone reached the URL directly. */
+  const { user, loading: userLoading } = useCurrentUser();
+  const allowed = user !== null && user.level <= 1;
+  const [denied, setDenied] = useState(false);
+
   const load = async (showSkeleton: boolean) => {
     if (showSkeleton) setLoading(true);
     try {
       const response = await fetch("/api/research/admin");
+      if (response.status === 403) {
+        setDenied(true);
+        return;
+      }
       if (!response.ok) throw new Error(`The pipeline view came back ${response.status}.`);
       setData((await response.json()) as Admin);
       setError(null);
@@ -248,8 +263,14 @@ export default function ResearchAdminPage() {
   };
 
   useEffect(() => {
+    if (userLoading) return;
+    if (!allowed) {
+      setDenied(true);
+      setLoading(false);
+      return;
+    }
     void load(true);
-  }, []);
+  }, [userLoading, allowed]);
 
   const run = async (action: "retry-failed" | "retriage" | "tick") => {
     setBusy(action);
@@ -292,6 +313,32 @@ export default function ResearchAdminPage() {
     if (ok) void run(action);
   };
 
+  if (denied) {
+    return (
+      <>
+        <section className="page-header">
+          <div>
+            <h1>Pipeline</h1>
+            <p>What the pipeline has ingested, skipped and choked on.</p>
+          </div>
+        </section>
+
+        <ResearchNav />
+
+        <section className="panel">
+          <div className="empty-state">
+            <p>This page is for the Managing Director.</p>
+            <p style={{ marginTop: 10 }}>
+              <Link href="/research" className="hover-text">
+                Back to Research
+              </Link>
+            </p>
+          </div>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
       <section className="page-header">
@@ -300,6 +347,8 @@ export default function ResearchAdminPage() {
           <p>What the pipeline has ingested, skipped and choked on.</p>
         </div>
       </section>
+
+      <ResearchNav />
 
       {error && <p className="rs-error">{error}</p>}
 

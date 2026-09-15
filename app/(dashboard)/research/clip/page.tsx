@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import ResearchNav from "../../../components/research/ResearchNav";
 
 /* The staff clip inbox.
 
@@ -118,6 +119,8 @@ export default function ClipPage() {
           </p>
         </div>
       </section>
+
+      <ResearchNav />
 
       {done ? (
         <section className="panel">
