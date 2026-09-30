@@ -6,7 +6,8 @@ export async function GET(request: Request) {
   const { id: userId } = await getRequestUser(request);
   const tasks = await prisma.task.findMany({
     where: { assignedTo: userId },
-    include: { assignedByUser: true },
+    // The assigner's name is all a task row shows; the unselected default carries their hash.
+    include: { assignedByUser: { select: { name: true } } },
     orderBy: { createdAt: "desc" }
   });
   return Response.json(tasks);
@@ -19,6 +20,19 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
+
+  /* The picker already hides people who have left, but the client can be stale or
+     bypassed entirely — this is the gate that actually decides. */
+  const assignee = body.assignedTo
+    ? await prisma.user.findUnique({
+        where: { id: body.assignedTo },
+        select: { status: true }
+      })
+    : null;
+  if (!assignee || assignee.status !== "ACTIVE") {
+    return new Response("Cannot assign a task to an inactive user", { status: 400 });
+  }
+
   const task = await prisma.task.create({
     data: {
       title: body.title,

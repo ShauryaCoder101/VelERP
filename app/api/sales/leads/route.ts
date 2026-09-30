@@ -15,6 +15,20 @@ export async function POST(request: Request) {
   if (!requireMinLevel(role, 3)) return new Response("Forbidden", { status: 403 });
 
   const body = await request.json();
+
+  /* The picker already hides people who have left, but the client can be stale or
+     bypassed entirely — this is the gate that actually decides. Ownership is
+     optional here, so only a supplied id is checked. */
+  if (body.assignedTo) {
+    const assignee = await prisma.user.findUnique({
+      where: { id: body.assignedTo },
+      select: { status: true }
+    });
+    if (!assignee || assignee.status !== "ACTIVE") {
+      return new Response("Cannot assign a lead to an inactive user", { status: 400 });
+    }
+  }
+
   const lead = await prisma.lead.create({
     data: {
       name: body.name,

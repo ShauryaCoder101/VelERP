@@ -32,6 +32,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "User not found" }, { status: 404 });
   }
 
+  // An OTP can already be in flight when someone is deactivated; reuse the generic OTP
+  // error so a revoked account fails exactly like a stale code.
+  if (user.status !== "ACTIVE") {
+    return Response.json({ error: "Invalid or expired OTP" }, { status: 400 });
+  }
+
   const passwordHash = await bcrypt.hash(newPassword, 10);
 
   await prisma.$transaction([

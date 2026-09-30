@@ -6,7 +6,15 @@ export async function GET(request: Request) {
   const isManager = requireMinLevel(role, 2) || role === "Accountant";
   const claims = await prisma.expenseClaim.findMany({
     where: isManager ? undefined : { userId },
-    include: { items: true, attachments: true, event: true, user: true },
+    /* The claimant is carried on the claim itself so the approval screen can render
+       people who have since left the company - they are no longer in /api/team, but
+       the money they claimed is still owed. */
+    include: {
+      items: true,
+      attachments: true,
+      event: true,
+      user: { select: { id: true, name: true, email: true, status: true } }
+    },
     orderBy: { submittedAt: "desc" }
   });
   return Response.json(claims);

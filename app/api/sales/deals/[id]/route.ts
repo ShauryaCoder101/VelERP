@@ -23,6 +23,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const { id } = await context.params;
   const body = await request.json();
 
+  /* Reassignment goes through the same gate as creation — a stale picker must not
+     be able to hand an open deal to someone who has left. Clearing the owner
+     (null/empty) stays valid. */
+  if (body.assignedTo) {
+    const assignee = await prisma.user.findUnique({
+      where: { id: body.assignedTo },
+      select: { status: true }
+    });
+    if (!assignee || assignee.status !== "ACTIVE") {
+      return new Response("Cannot assign a deal to an inactive user", { status: 400 });
+    }
+  }
+
   const data: Record<string, unknown> = {};
   if (body.dealName !== undefined) data.dealName = body.dealName;
   if (body.accountId !== undefined) data.accountId = body.accountId || null;

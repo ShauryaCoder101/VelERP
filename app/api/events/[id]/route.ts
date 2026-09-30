@@ -78,6 +78,35 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const body = await request.json();
   const { id: eventId } = await context.params;
 
+  /* PATCH replaces the roster wholesale, and it is the edit modal's actual write path,
+     so the gate POST applies has to hold here too. Only ids being ADDED are checked:
+     a stored roster may legitimately still name someone who has since left — we keep
+     historic rosters intact — and re-saving one unchanged must not start failing.
+     Deduplicated so a repeated id cannot fail the count check, and resolved in a
+     single query rather than one per member. */
+  /* EventTeamMember's primary key is (eventId, userId), so a duplicated id would make
+     createMany throw — the write below must use this deduplicated array, not the raw body. */
+  const teamMemberIds: string[] | null = Array.isArray(body.teamMemberIds)
+    ? Array.from(new Set(body.teamMemberIds as string[]))
+    : null;
+
+  if (teamMemberIds) {
+    const current = await prisma.eventTeamMember.findMany({
+      where: { eventId },
+      select: { userId: true }
+    });
+    const currentIds = new Set(current.map((m: { userId: string }) => m.userId));
+    const addedIds = teamMemberIds.filter((memberId) => !currentIds.has(memberId));
+    if (addedIds.length) {
+      const activeCount = await prisma.user.count({
+        where: { id: { in: addedIds }, status: "ACTIVE" }
+      });
+      if (activeCount !== addedIds.length) {
+        return new Response("Cannot add an inactive user to the event team", { status: 400 });
+      }
+    }
+  }
+
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const updateData: Record<string, unknown> = {};
     if (body.companyName !== undefined) updateData.companyName = body.companyName;
@@ -110,11 +139,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       }
     }
 
-    if (Array.isArray(body.teamMemberIds)) {
+    if (teamMemberIds) {
       await tx.eventTeamMember.deleteMany({ where: { eventId } });
-      if (body.teamMemberIds.length) {
+      if (teamMemberIds.length) {
         await tx.eventTeamMember.createMany({
-          data: body.teamMemberIds.map((userId: string) => ({ eventId, userId }))
+          data: teamMemberIds.map((userId: string) => ({ eventId, userId }))
         });
       }
     }

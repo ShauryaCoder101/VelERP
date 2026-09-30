@@ -29,8 +29,18 @@ type ExpenseClaim = {
   userId: string;
   status: "ACTIVE" | "INACTIVE";
   submittedAt: string;
+  claimant: { name: string; email: string; employmentStatus: "ACTIVE" | "INACTIVE" } | null;
   items: ClaimItem[];
   attachments: ClaimAttachment[];
+};
+
+/* One collapsible group on this page. Built from the claims themselves as well as
+   the team list so that a claim never becomes unreachable. */
+type ClaimantGroup = {
+  id: string;
+  name: string;
+  email: string;
+  departed: boolean;
 };
 
 const STATUS_OPTIONS: { value: ExpenseClaim["status"]; label: string }[] = [
@@ -88,6 +98,13 @@ export default function AccountantClaimManagementPage() {
             userId: claim.userId,
             status: claim.status,
             submittedAt: claim.submittedAt,
+            claimant: claim.user
+              ? {
+                  name: claim.user.name ?? "",
+                  email: claim.user.email ?? "",
+                  employmentStatus: claim.user.status
+                }
+              : null,
             items: (claim.items ?? []).map((item: any) => ({
               id: item.id,
               eventName: item.eventName,
@@ -118,6 +135,31 @@ export default function AccountantClaimManagementPage() {
     return map;
   }, [claims]);
 
+  /* /api/team is ACTIVE-only, so driving this list off it alone would hide every claim
+     filed by someone who has since left - i.e. make money owed to them unapprovable.
+     Active staff still lead the list (unchanged order, including those with no claims),
+     then anyone who filed a claim but is not in that list is appended from the claim. */
+  const claimGroups = useMemo<ClaimantGroup[]>(() => {
+    const groups: ClaimantGroup[] = members.map((member) => ({
+      id: member.id,
+      name: member.name,
+      email: member.email,
+      departed: false
+    }));
+    const seen = new Set(groups.map((group) => group.id));
+    claims.forEach((claim) => {
+      if (seen.has(claim.userId)) return;
+      seen.add(claim.userId);
+      groups.push({
+        id: claim.userId,
+        name: claim.claimant?.name || "Unknown user",
+        email: claim.claimant?.email ?? "",
+        departed: claim.claimant?.employmentStatus === "INACTIVE"
+      });
+    });
+    return groups;
+  }, [members, claims]);
+
   const handleStatusChange = async (claimId: string, status: ExpenseClaim["status"]) => {
     const response = await fetch(`/api/expense-claims/${claimId}`, {
       method: "PATCH",
@@ -145,7 +187,7 @@ export default function AccountantClaimManagementPage() {
         </div>
         <div className="panel-body">
           <div className="claims-list">
-            {members.map((member) => {
+            {claimGroups.map((member) => {
               const memberClaims = claimsByUser.get(member.id) ?? [];
               const isOpen = activeUserId === member.id;
               const totalAmount = memberClaims.reduce((sum, c) => sum + c.items.reduce((s, i) => s + i.amount, 0), 0);
@@ -158,6 +200,11 @@ export default function AccountantClaimManagementPage() {
                   >
                     <div>
                       <strong>{member.name}</strong>
+                      {member.departed ? (
+                        <span className="muted" style={{ marginLeft: 6, fontWeight: 400 }}>
+                          (no longer with the company)
+                        </span>
+                      ) : null}
                       <div className="muted">{member.email}</div>
                     </div>
                     <span className="muted">

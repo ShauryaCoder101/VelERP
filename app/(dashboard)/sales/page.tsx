@@ -135,13 +135,27 @@ export default function SalesPage() {
     return `${Math.round((amt / totalPipeline) * 100)}%`;
   };
 
+  /* The lead being edited may belong to someone who has since left. /api/team lists only
+     active staff, so without putting that person back into the options the select renders
+     blank and the user cannot see — or keep — the record's own owner. */
+  const editingLeadOwner: UserRef | null = (editItem && addTarget === "lead" ? editItem.assignedToUser : null) ?? null;
+  const departedLeadOwner = editingLeadOwner && !team.some(t => t.id === editingLeadOwner.id) ? editingLeadOwner : null;
+
   /* ── CRUD ── */
   const handleSave = async () => {
     const isEdit = !!editItem;
     let url = "";
     let payload: unknown = {};
 
-    if (addTarget === "lead") { url = "/api/sales/leads"; payload = { ...leadForm, status: "NEW" }; }
+    if (addTarget === "lead") {
+      url = "/api/sales/leads";
+      /* Re-sending a departed owner's id trips the server's active-assignee gate and would
+         block every unrelated edit on the lead, so an untouched owner is left out of the
+         payload entirely and the stored value survives. */
+      const { assignedTo, ...leadRest } = leadForm;
+      const ownerUntouched = !!departedLeadOwner && assignedTo === departedLeadOwner.id;
+      payload = ownerUntouched ? { ...leadRest, status: "NEW" } : { ...leadForm, status: "NEW" };
+    }
     if (addTarget === "contact") { url = "/api/sales/contacts"; payload = contactForm; }
     if (addTarget === "account") { url = "/api/sales/accounts"; payload = accountForm; }
 
@@ -152,7 +166,11 @@ export default function SalesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      const msg = await res.text();
+      alert(msg || `Failed to save ${addTarget}`);
+      return;
+    }
     const saved = await res.json();
 
     if (addTarget === "lead") setLeads(prev => isEdit ? prev.map(x => x.id === saved.id ? saved : x) : [saved, ...prev]);
@@ -379,6 +397,9 @@ export default function SalesPage() {
               <select className="input select" value={leadForm.assignedTo} onChange={e => setLeadForm(p => ({ ...p, assignedTo: e.target.value }))}>
                 <option value="">Unassigned</option>
                 {team.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {departedLeadOwner && (
+                  <option value={departedLeadOwner.id}>{departedLeadOwner.name} — no longer with the company</option>
+                )}
               </select>
               <label className="auth-label">Notes</label>
               <textarea className="input textarea" rows={2} value={leadForm.notes} onChange={e => setLeadForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" />

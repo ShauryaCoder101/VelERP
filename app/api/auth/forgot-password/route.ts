@@ -11,7 +11,9 @@ export async function POST(request: Request) {
   }
 
   const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
-  if (!user) {
+  // A non-ACTIVE user gets the unknown-email response verbatim, so no OTP is sent and
+  // the endpoint stays non-enumerable.
+  if (!user || user.status !== "ACTIVE") {
     return Response.json({ ok: true });
   }
 

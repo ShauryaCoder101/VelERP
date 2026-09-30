@@ -20,6 +20,19 @@ export async function PATCH(request: Request) {
     where: { id: user.id },
     data: {
       avatarUrl: body.avatarUrl !== undefined ? body.avatarUrl : undefined
+    },
+    // Without an explicit select the caller would get their own passwordHash back.
+    select: {
+      id: true,
+      uid: true,
+      name: true,
+      email: true,
+      designation: true,
+      role: true,
+      team: true,
+      avatarUrl: true,
+      status: true,
+      createdAt: true
     }
   });
 

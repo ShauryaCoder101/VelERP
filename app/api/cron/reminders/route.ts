@@ -45,7 +45,8 @@ export async function GET(request: Request) {
         revokedAt: null,
         remindedAt: null,
         viewCount: 0,
-        expiresAt: { gt: now, lt: new Date(now.getTime() + 2 * DAY_MS) }
+        expiresAt: { gt: now, lt: new Date(now.getTime() + 2 * DAY_MS) },
+        creator: { status: "ACTIVE" }
       },
       select: {
         id: true,
@@ -66,6 +67,16 @@ export async function GET(request: Request) {
     else byCreator.set(share.creator.email, { name: share.creator.name, items: [share] });
   }
 
+  /* remindedAt is what stops a share being chased again, so only stamp the ones an
+     email actually went out for.
+
+     Note the gap this leaves: the query above drops shares whose creator is no longer
+     ACTIVE, so such a share is chased by nobody — no email goes anywhere, and the link
+     expires unopened with no one told. That is the behaviour today, not a deferral.
+     Re-routing an orphaned share to the creator's manager (or the event owner) is a
+     deliberate open question, not something handled below. */
+  const remindedIds: string[] = [];
+
   for (const [email, { name, items }] of byCreator) {
     const ok = await sendReminderEmail(
       email,
@@ -80,12 +91,15 @@ export async function GET(request: Request) {
       ),
       "Open the event in the ERP to issue a fresh link, or check the client received the original."
     );
-    if (ok) sent.push(`links:${email}`);
+    if (ok) {
+      sent.push(`links:${email}`);
+      remindedIds.push(...items.map((s) => s.id));
+    }
   }
 
-  if (expiring.length > 0) {
+  if (remindedIds.length > 0) {
     await prisma.mediaShare
-      .updateMany({ where: { id: { in: expiring.map((s) => s.id) } }, data: { remindedAt: now } })
+      .updateMany({ where: { id: { in: remindedIds } }, data: { remindedAt: now } })
       .catch(() => {});
   }
 
@@ -133,7 +147,8 @@ export async function GET(request: Request) {
     where: {
       expectedCloseDate: { gte: now, lt: new Date(now.getTime() + 7 * DAY_MS) },
       stage: { notIn: ["CLOSED_WON", "CLOSED_LOST"] },
-      assignedTo: { not: null }
+      assignedTo: { not: null },
+      assignedToUser: { status: "ACTIVE" }
     },
     select: {
       dealName: true,
@@ -179,7 +194,10 @@ export async function GET(request: Request) {
       eventName: true,
       companyName: true,
       toDate: true,
-      teamMembers: { select: { user: { select: { name: true, email: true } } } }
+      teamMembers: {
+        where: { user: { status: "ACTIVE" } },
+        select: { user: { select: { name: true, email: true } } }
+      }
     }
   });
 

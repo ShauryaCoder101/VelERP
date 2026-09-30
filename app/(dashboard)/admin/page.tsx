@@ -40,8 +40,11 @@ export default function AdminPage() {
 
   const [deleteConfirm, setDeleteConfirm] = useState<User | null>(null);
 
+  // Only ever one modal open at a time, so a single slot is enough for whichever save failed.
+  const [actionError, setActionError] = useState("");
+
   const load = () => {
-    fetch("/api/team").then((r) => r.json()).then((d) => setUsers(d)).catch(() => {});
+    fetch("/api/team?includeInactive=1").then((r) => r.json()).then((d) => setUsers(d)).catch(() => {});
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
       setCurrentUserId(d.id);
       const role = normalizeRole(d.role) as keyof typeof ROLE_LEVELS;
@@ -57,49 +60,79 @@ export default function AdminPage() {
 
   if (!authorized) return null;
 
+  /* Rejections come back as JSON {error}; an auth or server failure is plain text, so fall
+     back to a sentence of our own rather than rendering "undefined". */
+  const readError = async (res: Response, fallback: string) => {
+    try {
+      const body = await res.json();
+      return typeof body?.error === "string" ? body.error : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const handleAdd = async () => {
+    setActionError("");
     const res = await fetch("/api/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(addForm)
     });
-    if (res.ok) {
-      setAddOpen(false);
-      setAddForm({ uid: "", name: "", email: "", designation: "", role: "INTERN", team: "", password: "" });
-      load();
+    if (!res.ok) {
+      setActionError(await readError(res, "Could not create this user."));
+      return;
     }
+    setAddOpen(false);
+    setAddForm({ uid: "", name: "", email: "", designation: "", role: "INTERN", team: "", password: "" });
+    load();
   };
 
   const handleChangePw = async () => {
     if (!pwOpen || !newPw) return;
-    await fetch(`/api/admin/users/${pwOpen.id}`, {
+    setActionError("");
+    const res = await fetch(`/api/admin/users/${pwOpen.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ newPassword: newPw })
     });
+    if (!res.ok) {
+      setActionError(await readError(res, "Could not reset the password."));
+      return;
+    }
     setPwOpen(null);
     setNewPw("");
   };
 
   const handleEdit = async () => {
     if (!editOpen) return;
-    await fetch(`/api/admin/users/${editOpen.id}`, {
+    setActionError("");
+    const res = await fetch(`/api/admin/users/${editOpen.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(editForm)
     });
+    if (!res.ok) {
+      setActionError(await readError(res, "Could not save these changes."));
+      return;
+    }
     setEditOpen(null);
     load();
   };
 
   const handleDelete = async () => {
     if (!deleteConfirm) return;
-    await fetch(`/api/admin/users/${deleteConfirm.id}`, { method: "DELETE" });
+    setActionError("");
+    const res = await fetch(`/api/admin/users/${deleteConfirm.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setActionError(await readError(res, "Could not delete this user."));
+      return;
+    }
     setDeleteConfirm(null);
     load();
   };
 
   const openEdit = (u: User) => {
+    setActionError("");
     setEditOpen(u);
     setEditForm({ name: u.name, email: u.email, designation: u.designation, role: u.role, team: u.team ?? "", status: u.status });
   };
@@ -112,7 +145,7 @@ export default function AdminPage() {
             <h1>Admin Panel</h1>
             <p>Manage users, roles, and passwords.</p>
           </div>
-          <button className="btn-primary" type="button" onClick={() => setAddOpen(true)}>+ Add User</button>
+          <button className="btn-primary" type="button" onClick={() => { setActionError(""); setAddOpen(true); }}>+ Add User</button>
         </div>
       </section>
 
@@ -144,9 +177,9 @@ export default function AdminPage() {
                     <td>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button className="btn-outline hover-text" type="button" onClick={() => openEdit(u)} style={{ padding: "4px 10px", fontSize: 12 }}>Edit</button>
-                        <button className="btn-outline hover-text" type="button" onClick={() => { setPwOpen(u); setNewPw(""); }} style={{ padding: "4px 10px", fontSize: 12 }}>Reset PW</button>
+                        <button className="btn-outline hover-text" type="button" onClick={() => { setActionError(""); setPwOpen(u); setNewPw(""); }} style={{ padding: "4px 10px", fontSize: 12 }}>Reset PW</button>
                         {u.id !== currentUserId && (
-                          <button className="btn-outline hover-text" type="button" onClick={() => setDeleteConfirm(u)} style={{ padding: "4px 10px", fontSize: 12, color: "var(--red)" }}>Delete</button>
+                          <button className="btn-outline hover-text" type="button" onClick={() => { setActionError(""); setDeleteConfirm(u); }} style={{ padding: "4px 10px", fontSize: 12, color: "var(--red)" }}>Delete</button>
                         )}
                       </div>
                     </td>
@@ -179,6 +212,7 @@ export default function AdminPage() {
             <input className="input" value={addForm.team} onChange={(e) => setAddForm((p) => ({ ...p, team: e.target.value }))} placeholder="Operations" />
             <label className="auth-label">Password</label>
             <input className="input" type="text" value={addForm.password} onChange={(e) => setAddForm((p) => ({ ...p, password: e.target.value }))} placeholder="Leave blank for ChangeMe123!" />
+            {actionError ? <p className="auth-error" role="alert">{actionError}</p> : null}
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setAddOpen(false)}>Cancel</button>
               <button className="btn-primary" type="button" onClick={handleAdd} disabled={!addForm.uid || !addForm.name || !addForm.email}>Create User</button>
@@ -195,6 +229,7 @@ export default function AdminPage() {
             <p className="muted">Changing password for <strong>{pwOpen.name}</strong> ({pwOpen.email})</p>
             <label className="auth-label">New Password</label>
             <input className="input" type="text" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="Enter new password" />
+            {actionError ? <p className="auth-error" role="alert">{actionError}</p> : null}
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setPwOpen(null)}>Cancel</button>
               <button className="btn-primary" type="button" onClick={handleChangePw} disabled={!newPw}>Save Password</button>
@@ -225,6 +260,7 @@ export default function AdminPage() {
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
             </select>
+            {actionError ? <p className="auth-error" role="alert">{actionError}</p> : null}
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setEditOpen(null)}>Cancel</button>
               <button className="btn-primary" type="button" onClick={handleEdit}>Save Changes</button>
@@ -240,6 +276,7 @@ export default function AdminPage() {
             <h3>Delete User</h3>
             <p>Are you sure you want to permanently delete <strong>{deleteConfirm.name}</strong> ({deleteConfirm.email})?</p>
             <p className="muted">This will remove all their sessions and cannot be undone.</p>
+            {actionError ? <p className="auth-error" role="alert">{actionError}</p> : null}
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setDeleteConfirm(null)}>Cancel</button>
               <button className="btn-primary" type="button" onClick={handleDelete} style={{ background: "var(--red)" }}>Delete User</button>

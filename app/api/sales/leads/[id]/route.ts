@@ -23,6 +23,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const existing = await prisma.lead.findUnique({ where: { id } });
   if (!existing) return new Response("Not found", { status: 404 });
 
+  /* Reassignment goes through the same gate as creation — a stale picker must not
+     be able to hand an open lead to someone who has left. Clearing the owner
+     (null/empty) stays valid. */
+  if (body.assignedTo) {
+    const assignee = await prisma.user.findUnique({
+      where: { id: body.assignedTo },
+      select: { status: true }
+    });
+    if (!assignee || assignee.status !== "ACTIVE") {
+      return new Response("Cannot assign a lead to an inactive user", { status: 400 });
+    }
+  }
+
   const data: Record<string, unknown> = {};
   if (body.name !== undefined) data.name = body.name;
   if (body.company !== undefined) data.company = body.company;
@@ -40,12 +53,20 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     && existing.status === "NEW";
 
   if (shouldConvert) {
+    /* The lead rightly keeps its historic owner, but the Deal is a brand-new record with
+       live work attached — inheriting an owner who has left would create a pipeline entry
+       nobody is chasing. Leaving it unassigned surfaces it as needing an owner. */
+    const leadOwner = existing.assignedTo
+      ? await prisma.user.findUnique({ where: { id: existing.assignedTo }, select: { status: true } })
+      : null;
+    const dealAssignedTo = leadOwner?.status === "ACTIVE" ? existing.assignedTo : null;
+
     const deal = await prisma.deal.create({
       data: {
         dealName: `${existing.company} — ${existing.name}`,
         stage: "NEEDS_ANALYSIS",
         amount: 0,
-        assignedTo: existing.assignedTo,
+        assignedTo: dealAssignedTo,
         notes: existing.notes,
         createdBy: userId
       }

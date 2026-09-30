@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const eventId = new URL(request.url).searchParams.get("eventId");
   const uploads = await prisma.upload.findMany({
     where: eventId ? { eventId } : undefined,
-    include: { event: true, user: true },
+    include: { event: true, user: { select: { id: true, name: true } } },
     orderBy: { createdAt: "desc" }
   });
   return Response.json(uploads);

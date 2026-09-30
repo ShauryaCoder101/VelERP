@@ -14,6 +14,12 @@ export async function POST(request: Request) {
     return new Response("Invalid credentials", { status: 401 });
   }
 
+  // Deliberately the same 401 as a wrong password: a distinct "account disabled"
+  // reply would let anyone enumerate which ex-employees still have accounts.
+  if (user.status !== "ACTIVE") {
+    return new Response("Invalid credentials", { status: 401 });
+  }
+
   const { token, expiresAt } = await createSession(user.id);
   const cookie = getSessionCookie(token, expiresAt);
 

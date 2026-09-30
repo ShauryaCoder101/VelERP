@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { prisma } from "./db";
+import type { Status } from "@prisma/client";
 import { normalizeRole, type Role } from "./rbac";
 
 const SESSION_COOKIE = "velocity_session";
@@ -14,7 +15,7 @@ type SessionUser = {
   designation: string;
   team: string | null;
   avatarUrl: string | null;
-  status: string;
+  status: Status;
   createdAt: Date;
 };
 
@@ -58,6 +59,10 @@ export const getSessionUser = async (request: Request): Promise<SessionUser | nu
   });
 
   if (!session) return null;
+
+  // Re-checked on every request so a deactivation takes effect immediately instead of
+  // waiting out the remaining 7-day session TTL on a cookie already in the wild.
+  if (session.user.status !== "ACTIVE") return null;
 
   return {
     id: session.user.id,

@@ -12,12 +12,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!lead) return new Response("Lead not found", { status: 404 });
   if (lead.convertedDealId) return Response.json({ error: "Already converted" }, { status: 400 });
 
+  /* The lead rightly keeps its historic owner, but the Deal is a brand-new record with
+     live work attached — inheriting an owner who has left would create a pipeline entry
+     nobody is chasing. Leaving it unassigned surfaces it as needing an owner. */
+  const leadOwner = lead.assignedTo
+    ? await prisma.user.findUnique({ where: { id: lead.assignedTo }, select: { status: true } })
+    : null;
+  const dealAssignedTo = leadOwner?.status === "ACTIVE" ? lead.assignedTo : null;
+
   const deal = await prisma.deal.create({
     data: {
       dealName: `${lead.company} — ${lead.name}`,
       stage: "QUALIFICATION",
       amount: 0,
-      assignedTo: lead.assignedTo,
+      assignedTo: dealAssignedTo,
       notes: lead.notes,
       createdBy: userId
     },

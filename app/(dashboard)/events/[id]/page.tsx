@@ -71,7 +71,7 @@ type EventDetail = {
 
 type VendorOption = { id: string; companyName: string };
 type ArtistOption = { id: string; name: string };
-type TeamOption = { id: string; name: string; designation: string };
+type TeamOption = { id: string; name: string; designation: string; inactive?: boolean };
 
 const phaseLabel = (p: string) => {
   const map: Record<string, string> = {
@@ -203,7 +203,18 @@ export default function EventDetailPage() {
     Promise.all([
       fetch("/api/vendors").then((r) => r.json()).then((d: any[]) => setAllVendors(d.map((v) => ({ id: v.id, companyName: v.companyName })))),
       fetch("/api/artists").then((r) => r.json()).then((d: any[]) => setAllArtists(d.map((a) => ({ id: a.id, name: a.name })))),
-      fetch("/api/team").then((r) => r.json()).then((d: any[]) => setAllTeam(d.map((t) => ({ id: t.id, name: t.name, designation: t.designation }))))
+      fetch("/api/team").then((r) => r.json()).then((d: any[]) => {
+        const active: TeamOption[] = d.map((t) => ({ id: t.id, name: t.name, designation: t.designation }));
+        const activeIds = new Set(active.map((t) => t.id));
+        /* Anyone already on this event has to get a checkbox even if they have left the
+           company, otherwise their id sits in editTeamIds with nothing to render it and
+           saving the form silently drops them from the roster. New picks are still
+           limited to active staff, since only the event's own members are added here. */
+        const departed: TeamOption[] = ev.teamMembers
+          .filter((tm) => !activeIds.has(tm.user.id))
+          .map((tm) => ({ id: tm.user.id, name: tm.user.name, designation: tm.user.designation, inactive: true }));
+        setAllTeam([...active, ...departed]);
+      })
     ]).catch(() => {});
     setEditOpen(true);
   };
@@ -211,13 +222,17 @@ export default function EventDetailPage() {
   const saveEdit = async () => {
     if (!ev) return;
     setEditSaving(true);
-    await fetch(`/api/events/${ev.id}`, {
+    const res = await fetch(`/api/events/${ev.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vendorIds: editVendorIds, artistIds: editArtistIds, teamMemberIds: editTeamIds })
     });
-    setEditOpen(false);
     setEditSaving(false);
+    if (!res.ok) {
+      alert((await res.text()) || "Failed to save event");
+      return;
+    }
+    setEditOpen(false);
     loadEvent();
   };
 
@@ -455,11 +470,16 @@ export default function EventDetailPage() {
               style={{ width: "auto", padding: "6px 12px", borderRadius: 999, fontWeight: 600, fontSize: 13 }}
               onChange={async (e) => {
                 const newPhase = e.target.value;
-                await fetch(`/api/events/${ev.id}`, {
+                const res = await fetch(`/api/events/${ev.id}`, {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ phase: newPhase })
                 });
+                if (!res.ok) {
+                  alert((await res.text()) || "Failed to change phase");
+                }
+                /* Reload either way: the select is controlled, so on failure this is what
+                   puts the dropdown back on the phase the server actually has. */
                 loadEvent();
               }}
             >
@@ -923,6 +943,7 @@ export default function EventDetailPage() {
                   <input type="checkbox" checked={editTeamIds.includes(t.id)}
                     onChange={(e) => setEditTeamIds(e.target.checked ? [...editTeamIds, t.id] : editTeamIds.filter((x) => x !== t.id))} />
                   {t.name} ({t.designation})
+                  {t.inactive ? <span className="muted"> — no longer with the company</span> : null}
                 </label>
               ))}
               {allTeam.length === 0 && <span className="muted">No team members available</span>}

@@ -71,8 +71,16 @@ export default function DealDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
     });
-    if (res.ok) setDeal(await res.json());
+    if (res.ok) {
+      setDeal(await res.json());
+    } else {
+      const msg = await res.text();
+      alert(msg || "Failed to update deal");
+    }
     setSaving(false);
+    /* Callers close their modal only on success — a rejected save used to look identical
+       to a successful one. */
+    return res.ok;
   };
 
   const openPush = () => {
@@ -85,21 +93,22 @@ export default function DealDetailPage() {
     const openStages = STAGES.filter(s => s !== "CLOSED_WON" && s !== "CLOSED_LOST");
     const idx = openStages.indexOf(deal.stage);
     if (idx < 0 || idx >= openStages.length - 1) return;
-    await updateDeal({ stage: openStages[idx + 1], expectedCloseDate: pushDate });
-    setPushOpen(false);
+    if (await updateDeal({ stage: openStages[idx + 1], expectedCloseDate: pushDate })) setPushOpen(false);
   };
 
   const handleCloseLost = async () => { await updateDeal({ stage: "CLOSED_LOST" }); };
   const handleCloseWon = async () => { await updateDeal({ stage: "CLOSED_WON" }); };
 
   const handleReassign = async () => {
-    await updateDeal({ assignedTo: reassignTo || null });
-    setReassignOpen(false);
+    /* Leaving the selection alone is not a reassignment, and when the current owner has
+       left the company re-sending their id would be rejected by the server's
+       active-assignee gate — failing an edit the user never actually made. */
+    if (reassignTo === (deal?.assignedTo ?? "")) { setReassignOpen(false); return; }
+    if (await updateDeal({ assignedTo: reassignTo || null })) setReassignOpen(false);
   };
 
   const handleSaveAmount = async () => {
-    await updateDeal({ amount: amountVal });
-    setAmountOpen(false);
+    if (await updateDeal({ amount: amountVal })) setAmountOpen(false);
   };
 
   const handleDelete = async () => {
@@ -115,6 +124,10 @@ export default function DealDetailPage() {
   const openStages = STAGES.filter(s => s !== "CLOSED_WON" && s !== "CLOSED_LOST");
   const currentIdx = openStages.indexOf(deal.stage);
   const canPush = !isClosed && currentIdx < openStages.length - 1;
+  /* /api/team lists only active staff, so a departed owner has to come from the deal
+     itself — otherwise the reassign select shows a blank current value. */
+  const owner = deal.assignedToUser;
+  const departedOwner = owner && !team.some(t => t.id === owner.id) ? owner : null;
 
   return (
     <>
@@ -249,6 +262,9 @@ export default function DealDetailPage() {
             <select className="input select" value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
               <option value="">Unassigned</option>
               {team.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {departedOwner && (
+                <option value={departedOwner.id}>{departedOwner.name} — no longer with the company</option>
+              )}
             </select>
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setReassignOpen(false)}>Cancel</button>

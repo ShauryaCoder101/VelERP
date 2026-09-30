@@ -30,7 +30,10 @@ export default function TeamPage() {
 
   useEffect(() => {
     const loadTeam = async () => {
-      const response = await fetch("/api/team");
+      /* The directory is a record of the team, so it asks for departed people too. The
+         parameter is honoured only for role level <= 2 and silently ignored otherwise,
+         so everyone else still sees active staff only. */
+      const response = await fetch("/api/team?includeInactive=1");
       if (!response.ok) return;
       const data = await response.json();
       setMembers(
@@ -69,11 +72,9 @@ export default function TeamPage() {
 
   const canAssignTo = (targetRole: string) => currentUserLevel < getRoleLevel(targetRole as any);
 
-  const handleAssign = () => {
+  const handleAssign = async () => {
     if (!assignTarget) return;
-    // Placeholder for API call to create task assigned to assignTarget.id
-    // eslint-disable-next-line no-console
-    fetch("/api/tasks", {
+    const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -82,7 +83,11 @@ export default function TeamPage() {
         notes: taskNotes,
         dueDate: taskDue
       })
-    }).catch(() => null);
+    });
+    if (!res.ok) {
+      alert((await res.text()) || "Failed to assign task");
+      return;
+    }
     setAssignMemberId(null);
     setTaskTitle("");
     setTaskNotes("");
@@ -94,7 +99,7 @@ export default function TeamPage() {
       <section className="page-header">
         <div>
           <h1>Team</h1>
-          <p>All active Velocity team members and interns.</p>
+          <p>All Velocity team members and interns.</p>
         </div>
       </section>
 
@@ -141,7 +146,7 @@ export default function TeamPage() {
                       </span>
                     </td>
                     <td>
-                      {canAssignTo(member.role) ? (
+                      {canAssignTo(member.role) && member.status === "Active" ? (
                         <button
                           className="btn-outline hover-text"
                           type="button"

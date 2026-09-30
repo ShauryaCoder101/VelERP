@@ -48,8 +48,16 @@ export default function LeadDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
     });
-    if (res.ok) setLead(await res.json());
+    if (res.ok) {
+      setLead(await res.json());
+    } else {
+      const msg = await res.text();
+      alert(msg || "Failed to update lead");
+    }
     setSaving(false);
+    /* Callers close their editor only on success — a rejected save used to look identical
+       to a successful one. */
+    return res.ok;
   };
 
   const handleConvert = async () => {
@@ -67,13 +75,15 @@ export default function LeadDetailPage() {
   };
 
   const handleReassign = async () => {
-    await saveLead({ assignedTo: reassignTo || null });
-    setReassignOpen(false);
+    /* Leaving the selection alone is not a reassignment, and when the current owner has
+       left the company re-sending their id would be rejected by the server's
+       active-assignee gate — failing an edit the user never actually made. */
+    if (reassignTo === (lead?.assignedTo ?? "")) { setReassignOpen(false); return; }
+    if (await saveLead({ assignedTo: reassignTo || null })) setReassignOpen(false);
   };
 
   const handleSaveAddress = async () => {
-    await saveLead({ address: addressEdit });
-    setEditOpen(false);
+    if (await saveLead({ address: addressEdit })) setEditOpen(false);
   };
 
   if (loading) return <div className="page-header"><h1>Loading...</h1></div>;
@@ -81,6 +91,10 @@ export default function LeadDetailPage() {
 
   const isConverted = !!lead.convertedDealId;
   const isLost = lead.status === "UNQUALIFIED";
+  /* /api/team lists only active staff, so a departed owner has to come from the lead
+     itself — otherwise the reassign select shows a blank current value. */
+  const owner = lead.assignedToUser;
+  const departedOwner = owner && !team.some(t => t.id === owner.id) ? owner : null;
 
   return (
     <>
@@ -177,6 +191,9 @@ export default function LeadDetailPage() {
             <select className="input select" value={reassignTo} onChange={e => setReassignTo(e.target.value)}>
               <option value="">Unassigned</option>
               {team.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {departedOwner && (
+                <option value={departedOwner.id}>{departedOwner.name} — no longer with the company</option>
+              )}
             </select>
             <div className="modal-actions">
               <button className="btn-outline hover-text" type="button" onClick={() => setReassignOpen(false)}>Cancel</button>

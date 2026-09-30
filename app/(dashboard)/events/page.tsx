@@ -113,7 +113,12 @@ export default function EventsPage() {
           teamMemberIds: tIds,
           vendorNames: vIds.map((vid: string) => vendorMap.get(vid) ?? ""),
           artistNames: aIds.map((aid: string) => artistMap.get(aid) ?? ""),
-          teamNames: tIds.map((tid: string) => teamMap.get(tid) ?? "")
+          /* Read the roster off the event itself: /api/team is ACTIVE-only, so a member
+             who has since left is absent from teamMap and used to render a blank chip
+             on the historic event they actually worked. */
+          teamNames: (e.teamMembers ?? [])
+            .map((et: any) => et.user?.name ?? teamMap.get(et.userId ?? et.user?.id) ?? "")
+            .filter(Boolean)
         };
       }));
       setLoading(false);
@@ -144,7 +149,10 @@ export default function EventsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form)
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      alert((await res.text()) || "Failed to create event");
+      return;
+    }
     const created = await res.json();
     const card: EventCard = {
       id: created.id,
