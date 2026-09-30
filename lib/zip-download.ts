@@ -107,9 +107,13 @@ const MAX_OPEN_ATTEMPTS = 6;
 
 /* ...and while the machine is genuinely offline, retrying on a timer would burn
    all six attempts in under a minute. Park on the browser's own 'online' event
-   instead, up to this long. Longer than a lift or a train tunnel; short enough
-   that a laptop shut for the night still ends with a finished archive rather
-   than a job hanging forever. */
+   instead. This is a JOB-WIDE budget, not a per-wait one: it caps the TOTAL
+   time spent parked across the whole run, so a persistent outage cannot make
+   every remaining file wait the full ten minutes in turn (which would hang a
+   big archive for hours). Once the budget is spent, later opens fail fast and
+   land in _NOT_INCLUDED.txt, so the job still ends with a finished archive.
+   Longer than a lift or a train tunnel; short enough that a laptop shut for the
+   night finishes rather than hanging. */
 const OFFLINE_WAIT_MS = 10 * 60 * 1000;
 
 /** Shown through `current` in the progress callback while the network is gone. */
@@ -276,19 +280,31 @@ export async function streamZipToDisk(opts: {
     });
   };
 
+  /* Total time already spent parked waiting for the connection, measured across
+     the whole run so OFFLINE_WAIT_MS can be enforced as a job-wide budget. */
+  let offlineWaitedMs = 0;
+
   /**
-   * Block until the browser says it is back online, the cap runs out, or the
-   * user cancels. Returns immediately when the browser has no opinion
-   * (navigator.onLine is true, or unavailable) — `onLine === false` is the only
-   * reliable half of that flag, and it is exactly the case worth waiting on.
+   * Block until the browser says it is back online, the JOB-WIDE offline budget
+   * runs out, or the user cancels. Returns immediately when the browser has no
+   * opinion (navigator.onLine is true, or unavailable) — `onLine === false` is
+   * the only reliable half of that flag, and it is exactly the case worth
+   * waiting on — and also once the run's total wait has exhausted the budget,
+   * so a persistent outage stops stalling instead of pausing every file.
    */
   async function waitForOnline() {
     if (typeof navigator === "undefined" || navigator.onLine !== false) return;
     if (signal.aborted) return;
 
+    /* Only ever wait for what is left of the budget; when it is gone, fail fast
+       so the open path can skip the file into _NOT_INCLUDED.txt. */
+    const remaining = OFFLINE_WAIT_MS - offlineWaitedMs;
+    if (remaining <= 0) return;
+
     const was = current;
     current = WAITING_LABEL;
     report(true);
+    const startedAt = Date.now();
     try {
       await new Promise<void>((resolve) => {
         let timer: ReturnType<typeof setTimeout>;
@@ -301,11 +317,12 @@ export async function streamZipToDisk(opts: {
           signal.removeEventListener("abort", finish);
           resolve();
         };
-        timer = setTimeout(finish, OFFLINE_WAIT_MS);
+        timer = setTimeout(finish, remaining);
         window.addEventListener("online", finish);
         signal.addEventListener("abort", finish);
       });
     } finally {
+      offlineWaitedMs += Date.now() - startedAt;
       current = was;
       report(true);
     }
@@ -586,6 +603,11 @@ export async function streamZipToDisk(opts: {
         } catch (err) {
           if (signal.aborted) return;
           openError = err;
+          /* The signer deliberately declined this key (it answered 200 with no
+             URL — archived, out of scope). Retrying just burns another batch of
+             sign calls for an answer that will not change, so treat it as final
+             and let it fall through to the skip below. */
+          if (unsignable.has(entry.key)) break;
           if (!retryableOpen(err)) break;
         }
       }

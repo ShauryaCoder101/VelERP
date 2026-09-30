@@ -67,7 +67,11 @@ export async function POST(request: Request) {
   if (!userId) return new Response("Forbidden", { status: 403 });
 
   const body = await request.json();
-  const urls: string[] = Array.isArray(body.urls) ? body.urls.slice(0, MAX_BATCH) : [];
+  /* Ignore non-string entries up front: the batch below runs under Promise.all,
+     so one bad item that made a helper throw would reject the whole set. */
+  const urls: string[] = Array.isArray(body.urls)
+    ? body.urls.filter((u: unknown): u is string => typeof u === "string").slice(0, MAX_BATCH)
+    : [];
   const archivedUrls: string[] = Array.isArray(body.archived) ? body.archived : [];
   const cold = new Set(archivedUrls);
   /* Opt-in, because the same batch endpoint feeds the gallery: a thumbnail
@@ -75,10 +79,17 @@ export async function POST(request: Request) {
   const asDownload = body.download === true;
 
   const entries = await Promise.all(
-    urls.map(
-      async (url) =>
-        [url, await signOne(url, cold.has(url), asDownload ? displayNameFromFileUrl(url) : undefined)] as const
-    )
+    urls.map(async (url) => {
+      /* displayNameFromFileUrl runs decodeURIComponent, which throws on a
+         malformed %-escape. Contain it per URL so one bad URL is simply left
+         out of the response instead of 500-ing the whole batch. */
+      try {
+        const downloadAs = asDownload ? displayNameFromFileUrl(url) : undefined;
+        return [url, await signOne(url, cold.has(url), downloadAs)] as const;
+      } catch {
+        return [url, null] as const;
+      }
+    })
   );
 
   const signed: Record<string, string> = {};

@@ -341,12 +341,22 @@ export async function POST(request: Request) {
           // Size must match: a stale object at the same key from an earlier
           // attempt is not proof that THIS upload landed.
           committed = Number(head.ContentLength) === layout.fileSize;
-        } catch {
-          /* HeadObject itself failed — could be a genuine 404, could be the
-             bucket being unreachable. Treat it as unknown and keep the row
-             COMPLETED: overcounting a photographer's usage is recoverable by
-             hand, undercounting is the bypass. */
-          certain = false;
+        } catch (headError) {
+          /* The SDK THROWS on a 404, so an object that is definitively absent
+             lands here too. That is a certain answer — the upload never
+             committed — so treat it as such and let the reopen branch run.
+             Any OTHER failure (an unreachable bucket, say) is genuinely
+             unknown: keep the row COMPLETED, because overcounting a
+             photographer's usage is recoverable by hand while undercounting
+             is the bypass. */
+          const notFound =
+            (headError as { name?: string }).name === "NotFound" ||
+            (headError as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404;
+          if (notFound) {
+            committed = false;
+          } else {
+            certain = false;
+          }
         }
 
         if (committed) {
