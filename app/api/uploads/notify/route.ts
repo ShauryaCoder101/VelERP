@@ -1,5 +1,6 @@
 import { prisma } from "../../../../lib/db";
-import { getRequestUser } from "../../../../lib/rbac-server";
+import { getUploader } from "../../../../lib/rbac-server";
+import { hasEventAccess } from "../../../../lib/photographers";
 import { sendUploadEmail } from "../../../../lib/email";
 
 /* Tells the uploader their batch has started or finished.
@@ -12,10 +13,19 @@ const MIN_FILES = 5;
 const MIN_BYTES = 200 * 1024 * 1024; // 200MB
 
 export async function POST(request: Request) {
-  const { id: userId, name } = await getRequestUser(request);
-  if (!userId) return new Response("Forbidden", { status: 403 });
+  const uploader = await getUploader(request);
+  if (!uploader) return new Response("Forbidden", { status: 403 });
+  const { id: userId, name } = uploader;
 
   const body = await request.json();
+  const eventId = String(body.eventId ?? "");
+
+  /* Same gate as the upload itself: an event a photographer cannot upload to is
+     also an event whose name they should not learn from an email. */
+  if (uploader.isPhotographer && !(await hasEventAccess(userId, eventId))) {
+    return Response.json({ error: "You don't have access to this event" }, { status: 403 });
+  }
+
   const fileCount = Number(body.fileCount) || 0;
   const totalBytes = Number(body.totalBytes) || 0;
   const phase = body.phase === "end" ? "end" : "start";
@@ -26,7 +36,7 @@ export async function POST(request: Request) {
 
   const [user, event] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } }),
-    prisma.event.findUnique({ where: { id: String(body.eventId ?? "") }, select: { eventName: true } })
+    prisma.event.findUnique({ where: { id: eventId }, select: { eventName: true } })
   ]);
 
   if (!user?.email) return Response.json({ sent: false, reason: "no address on file" });

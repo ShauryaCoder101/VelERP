@@ -1,9 +1,12 @@
 import { prisma } from "../../../lib/db";
-import { getSessionUser } from "../../../lib/session";
+import { getRequestUser } from "../../../lib/rbac-server";
 
+/* The feed is a running log of internal company activity — deals won, events closed,
+   vendors onboarded. getRequestUser rather than getSessionUser, because third-party
+   photographers hold real sessions and have no business reading any of it. */
 export async function GET(request: Request) {
-  const user = await getSessionUser(request);
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
 
   const notifications = await prisma.notification.findMany({
     include: { actor: { select: { id: true, name: true } } },
@@ -14,8 +17,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const user = await getSessionUser(request);
-  if (!user) return new Response("Unauthorized", { status: 401 });
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
 
   const body = await request.json();
 

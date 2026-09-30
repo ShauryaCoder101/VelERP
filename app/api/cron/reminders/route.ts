@@ -1,5 +1,6 @@
 import { prisma } from "../../../../lib/db";
 import { sendReminderEmail, reminderRow } from "../../../../lib/email";
+import { sweepAbandonedMultipart } from "../../../../lib/multipart-janitor";
 
 /* Runs on a Vercel cron. The route is publicly addressable, so it refuses
    anything without the shared secret — otherwise a stranger could make the
@@ -226,6 +227,21 @@ export async function GET(request: Request) {
     if (ok) sent.push(`media:${email}`);
   }
 
+  /* 5 — housekeeping, not a reminder: multipart uploads whose browser tab was
+         simply closed. Left alone they keep their parts in the bucket and, for
+         a photographer, keep their bytes counted against the 1 TB ceiling
+         forever. This is the only daily job there is, so it rides along here.
+
+         Sealed in its own try/catch: storage being unreachable must not stop
+         the emails above from having gone out, or the ones below — there are
+         none below today, but the ordering should not be load-bearing. */
+  let swept: { swept: number; bytesReleased: number } | null = null;
+  try {
+    swept = await sweepAbandonedMultipart();
+  } catch {
+    swept = null;
+  }
+
   return Response.json({
     ranAt: now.toISOString(),
     emails: sent.length,
@@ -234,6 +250,8 @@ export async function GET(request: Request) {
       pendingClaims: pendingClaims.length,
       closingDeals: closing.length,
       eventsMissingMedia: staleEvents.length
-    }
+    },
+    // null means the sweep threw; the counts are absent rather than zero.
+    abandonedUploads: swept
   });
 }

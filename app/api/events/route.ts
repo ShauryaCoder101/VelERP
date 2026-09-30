@@ -2,7 +2,10 @@ import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
 import { createNotification } from "../../../lib/notifications";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const events = await prisma.event.findMany({
     include: {
       vendors: { include: { vendor: true } },
@@ -31,11 +34,19 @@ export async function POST(request: Request) {
   const memberIds: string[] = Array.from(new Set((body.teamMemberIds ?? []) as string[]));
 
   if (memberIds.length) {
-    const activeCount = await prisma.user.count({
-      where: { id: { in: memberIds }, status: "ACTIVE" }
+    /* One query resolves both gates; the rows are needed anyway to tell the two failures
+       apart, so the caller gets a message naming the actual problem. */
+    const members = await prisma.user.findMany({
+      where: { id: { in: memberIds } },
+      select: { status: true, role: true }
     });
-    if (activeCount !== memberIds.length) {
+    if (members.length !== memberIds.length || members.some((m) => m.status !== "ACTIVE")) {
       return new Response("Cannot add an inactive user to the event team", { status: 400 });
+    }
+    /* Photographers get at an event through a PhotographerEventAccess grant, never by
+       joining its roster — a roster seat would hand them the whole internal event record. */
+    if (members.some((m) => m.role === "PHOTOGRAPHER")) {
+      return new Response("Cannot add a photographer to the event team", { status: 400 });
     }
   }
 

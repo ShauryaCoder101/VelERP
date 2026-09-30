@@ -5,6 +5,14 @@ import { folderFromFileUrl, displayNameFromFileUrl, derivativeUrlFor } from "../
 import { makeDerivatives } from "../../lib/derivatives";
 import { uploadFile, MULTIPART_THRESHOLD } from "../../lib/upload-client";
 import { isArchived, daysUntilArchived } from "../../lib/archive";
+import {
+  canSaveZipToDisk,
+  downloadOneByOne,
+  pickZipFile,
+  streamZipToDisk,
+  type DownloadQueueProgress,
+  type ZipProgress
+} from "../../lib/zip-download";
 
 export type UploadRecord = {
   id: string;
@@ -44,6 +52,13 @@ type Item = {
 };
 
 const UPLOAD_CONCURRENCY = 3;
+
+/* Links for the one-by-one fallback are minted just ahead of the files that
+   need them. /api/uploads/view signs for an hour and saving a few thousand
+   files takes far longer, so a big batch would hand out links that expire
+   before their turn. Five at a time means no URL is more than a few seconds old
+   when the browser is pointed at it. */
+const DOWNLOAD_SIGN_AHEAD = 5;
 
 const formatBytes = (n: number) => {
   if (n < 1024) return `${n} B`;
@@ -140,6 +155,19 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
   const [restoreState, setRestoreState] = useState<Record<string, string>>({});
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
+  const [zipReady, setZipReady] = useState(false);
+  const [zip, setZip] = useState<ZipProgress | null>(null);
+  const [zipNote, setZipNote] = useState("");
+  const zipAbort = useRef<AbortController | null>(null);
+
+  /* The fallback for browsers that cannot write a stream to disk. */
+  const [saveQueue, setSaveQueue] = useState<DownloadQueueProgress | null>(null);
+  const saveAbort = useRef<AbortController | null>(null);
+
+  /* After mount, not during render: the server has no showSaveFilePicker, and a
+     render-time check would hydrate a different header than it painted. */
+  useEffect(() => setZipReady(canSaveZipToDisk()), []);
+
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
@@ -211,6 +239,163 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     void loadSignedUrls();
   };
 
+  /* ---- the whole event as one ZIP ----
+     Built in the browser: a 300GB archive cannot be assembled in a serverless
+     function, and doing it client-side keeps the bytes on the free R2 egress
+     path instead of pulling them through us twice. See lib/zip-download.ts. */
+  const runZip = async (picked: Promise<FileSystemFileHandle>) => {
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picked;
+    } catch {
+      return; // save dialog dismissed
+    }
+
+    const controller = new AbortController();
+    zipAbort.current = controller;
+    setZipNote("");
+    setZip({ filesDone: 0, filesTotal: uploads.length, skipped: 0, bytesWritten: 0, totalBytes: null, current: "" });
+
+    try {
+      const outcome = await streamZipToDisk({
+        handle,
+        // Iterate the groups so the archive mirrors the folders on screen.
+        entries: groups.flatMap((g) =>
+          g.records.map((r) => {
+            const name = displayNameFromFileUrl(r.fileUrl);
+            return {
+              key: r.fileUrl,
+              path: g.folder ? `${g.folder}/${name}` : name,
+              lastModified: r.createdAt,
+              /* Cold originals are in Deep Archive; a GET would come back
+                 InvalidObjectState, so they are listed rather than fetched. */
+              skipReason: isArchived(r.createdAt)
+                ? "Original is in cold storage — use Request original on the file first"
+                : null
+            };
+          })
+        ),
+        sign: async (urls, signal) => {
+          const res = await fetch("/api/uploads/view", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls, archived: [] }),
+            signal
+          });
+          if (!res.ok) throw new Error(`Link server returned ${res.status}`);
+          const body = await res.json();
+          return body.signed ?? {};
+        },
+        signal: controller.signal,
+        onProgress: setZip
+      });
+
+      setZipNote(
+        outcome.cancelled
+          ? "Stopped. The part-written ZIP is incomplete — delete it and start again."
+          : `ZIP saved — ${outcome.filesWritten} file${outcome.filesWritten !== 1 ? "s" : ""}, ${formatBytes(outcome.bytesWritten)}.` +
+            (outcome.skipped.length > 0
+              ? ` ${outcome.skipped.length} could not be included; _NOT_INCLUDED.txt inside the ZIP lists them.`
+              : "")
+      );
+    } catch (err) {
+      /* streamZipToDisk names the file it gave up on — the difference between
+         "try again" and "that one video is the problem". */
+      const why = err instanceof Error && err.message ? ` ${err.message}.` : "";
+      setZipNote(`The ZIP could not be finished.${why} Start it again, or download files individually.`);
+    } finally {
+      zipAbort.current = null;
+      setZip(null);
+    }
+  };
+
+  /* Not async, and the picker runs first: showSaveFilePicker needs the click's
+     user activation and the first await would spend it. */
+  const startZip = () => {
+    if (zip || uploads.length === 0) return;
+    void runZip(pickZipFile("Event media.zip"));
+  };
+
+  /* ---- the whole event, one file at a time ----
+     Safari, Firefox and every phone have no showSaveFilePicker, so there is no
+     single-archive path for them at all. Rather than offer nothing, fall back to
+     the same queue the client gallery uses (lib/zip-download.ts).
+
+     Every link is signed with `download: true`, so it carries
+     Content-Disposition: attachment and the browser streams the file to disk on
+     its own. This page never touches the bytes — the earlier version fetched
+     each file into a Blob to get a same-origin URL, which on the very browsers
+     this path exists for (Safari, iOS) means a multi-GB video is held in memory
+     until the tab dies. */
+  const runQueueDownloads = async () => {
+    const wanted = groups.flatMap((g) =>
+      g.records
+        // A cold original would come back InvalidObjectState; it needs restoring first.
+        .filter((r) => !isArchived(r.createdAt))
+        .map((r) => ({ fileUrl: r.fileUrl, name: displayNameFromFileUrl(r.fileUrl) }))
+    );
+    if (wanted.length === 0 || saveQueue || zip) return;
+
+    const controller = new AbortController();
+    saveAbort.current = controller;
+    setZipNote("");
+    setSaveQueue({ done: 0, total: wanted.length, failed: 0 });
+
+    let done = 0;
+    let failed = 0;
+    let cancelled = false;
+
+    try {
+      for (let i = 0; i < wanted.length && !cancelled; i += DOWNLOAD_SIGN_AHEAD) {
+        const slice = wanted.slice(i, i + DOWNLOAD_SIGN_AHEAD);
+
+        let links: Record<string, string> = {};
+        try {
+          const res = await fetch("/api/uploads/view", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ urls: slice.map((s) => s.fileUrl), archived: [], download: true }),
+            signal: controller.signal
+          });
+          if (res.ok) links = (await res.json()).signed ?? {};
+        } catch {
+          /* leave links empty; the whole batch counts as failed below */
+        }
+        if (controller.signal.aborted) {
+          cancelled = true;
+          break;
+        }
+
+        const ready = slice.filter((s) => links[s.fileUrl]);
+        const unsigned = slice.length - ready.length;
+        failed += unsigned;
+        const base = done;
+
+        const outcome = await downloadOneByOne({
+          items: ready.map((s) => ({ url: links[s.fileUrl], name: s.name })),
+          signal: controller.signal,
+          onProgress: (p) => setSaveQueue({ done: base + p.done, total: wanted.length, failed })
+        });
+
+        done = base + outcome.done + unsigned;
+        cancelled = outcome.cancelled;
+        setSaveQueue({ done, total: wanted.length, failed });
+      }
+    } finally {
+      saveAbort.current = null;
+      setSaveQueue(null);
+    }
+
+    const saved = done - failed;
+    setZipNote(
+      cancelled
+        ? `Stopped — ${saved} of ${wanted.length} saved.`
+        : failed > 0
+          ? `${saved} of ${wanted.length} saved. ${failed} could not be downloaded — try again.`
+          : `${saved} file${saved !== 1 ? "s" : ""} saved.`
+    );
+  };
+
   /* ---- picking files ---- */
   const addFiles = (incoming: { file: File; path: string }[]) => {
     if (incoming.length === 0) return;
@@ -265,6 +450,9 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     const queue = [...pending];
     const batchBytes = pending.reduce((sum, i) => sum + i.file.size, 0);
     let failures = 0;
+    /* Thumbnails that did not land. Never fatal to a file, but worth saying:
+       otherwise the only symptom is blank tiles discovered days later. */
+    let derivativeFailures = 0;
 
     /* Fire-and-forget: the upload must not wait on an email server. */
     const notify = (phase: "start" | "end", failed = 0) =>
@@ -295,11 +483,41 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
             })
           });
           if (!presignRes.ok) throw new Error("Could not get an upload link");
-          const { uploadUrl, fileUrl: simpleUrl, derivatives } = await presignRes.json();
+          const { uploadUrl, fileUrl: simpleUrl, derivatives, reservation } = await presignRes.json();
 
           /* Shrink here, in the browser, before anything leaves the machine.
              Galleries then read kilobytes instead of the full original. */
           const small = await makeDerivatives(item.file);
+
+          /* The derivatives go up FIRST, before the original.
+             presign signs their PUT URLs with a one-hour life. A multi-GB video
+             uploaded in parts routinely takes longer than that, so PUTting them
+             afterwards — as this used to — meant storage answered 403 and the
+             gallery tile stayed blank forever. They are a few hundred KB each,
+             so sending them up front costs nothing and they are safely inside
+             the signature's life.
+             Still best effort: a missing thumbnail only means the viewer falls
+             back to the original, and must not fail the file. But it is counted
+             and logged rather than swallowed, so a systematic failure is
+             visible instead of silently blanking every tile. */
+          await Promise.all(
+            (["thumb", "preview"] as const).map(async (kind) => {
+              const blob = small[kind];
+              const slot = derivatives?.[kind];
+              if (!blob || !slot) return;
+              try {
+                const res = await fetch(slot.uploadUrl, {
+                  method: "PUT",
+                  headers: { "Content-Type": "image/jpeg" },
+                  body: blob
+                });
+                if (!res.ok) throw new Error(`storage returned ${res.status}`);
+              } catch (err) {
+                derivativeFailures += 1;
+                console.warn(`Could not upload the ${kind} for ${item.file.name}`, err);
+              }
+            })
+          );
 
           /* Small files go up in one PUT; anything larger is split into parts so
              a dropped connection costs one chunk instead of the whole file. */
@@ -310,23 +528,14 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
               relativePath: item.path,
               purpose: "media",
               presignedUrl: uploadUrl,
-              fileUrl: simpleUrl
+              fileUrl: simpleUrl,
+              /* Carries presign's key through to the multipart route, so a file
+                 over the threshold lands on the key its thumbnail and preview
+                 slots were signed against. Without it the derivatives are
+                 orphaned and the gallery tile stays blank. */
+              reservation
             },
             (pct) => patch(item.id, { pct })
-          );
-
-          // Best effort: a missing thumbnail only means the viewer falls back.
-          await Promise.all(
-            (["thumb", "preview"] as const).map(async (kind) => {
-              const blob = small[kind];
-              const slot = derivatives?.[kind];
-              if (!blob || !slot) return;
-              await fetch(slot.uploadUrl, {
-                method: "PUT",
-                headers: { "Content-Type": "image/jpeg" },
-                body: blob
-              }).catch(() => {});
-            })
           );
 
           const recordRes = await fetch("/api/uploads", {
@@ -350,9 +559,12 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     void notify("end", failures);
     const ok = pending.length - failures;
     setNotice(
-      failures === 0
+      (failures === 0
         ? `${ok} file${ok !== 1 ? "s" : ""} uploaded.`
-        : `${ok} uploaded, ${failures} failed. Press Upload again to retry the failures.`
+        : `${ok} uploaded, ${failures} failed. Press Upload again to retry the failures.`) +
+        (derivativeFailures > 0
+          ? ` ${derivativeFailures} preview image${derivativeFailures !== 1 ? "s" : ""} could not be saved — those tiles will load the full file instead.`
+          : "")
     );
     onUploaded();
   };
@@ -610,15 +822,77 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
 
       {/* ---------------- Viewer dialog ---------------- */}
       {viewerOpen && (
-        <div className="modal-overlay" onClick={() => setViewerOpen(false)}>
+        /* Closing mid-download would hide the only Cancel button while the
+           transfer carried on, so the viewer stays put until it is done. */
+        <div className="modal-overlay" onClick={() => !zip && !saveQueue && setViewerOpen(false)}>
           <div className="modal-card media-modal media-viewer" onClick={(e) => e.stopPropagation()}>
             <div className="claims-header">
               <div>
                 <h3>Event media</h3>
                 <p className="muted">{uploads.length} file{uploads.length !== 1 ? "s" : ""} in secure storage</p>
               </div>
-              <button className="link-button" type="button" onClick={() => setViewerOpen(false)}>Close</button>
+              <div className="claims-actions">
+                {/* One archive where the browser can write to disk; the
+                    one-at-a-time queue everywhere else. */}
+                {zipReady ? (
+                  zip ? (
+                    <button className="btn-outline" type="button" onClick={() => zipAbort.current?.abort()}>
+                      Cancel ZIP
+                    </button>
+                  ) : (
+                    <button className="btn-outline" type="button" onClick={startZip} disabled={uploads.length === 0}>
+                      Download all as ZIP
+                    </button>
+                  )
+                ) : saveQueue ? (
+                  <button className="btn-outline" type="button" onClick={() => saveAbort.current?.abort()}>
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    className="btn-outline"
+                    type="button"
+                    onClick={() => void runQueueDownloads()}
+                    disabled={uploads.length === 0}
+                  >
+                    Download all
+                  </button>
+                )}
+                <button
+                  className="link-button"
+                  type="button"
+                  onClick={() => setViewerOpen(false)}
+                  disabled={!!zip || !!saveQueue}
+                >
+                  Close
+                </button>
+              </div>
             </div>
+
+            {zip && (
+              <div className="muted">
+                Zipping {zip.filesDone} of {zip.filesTotal} · {formatBytes(zip.bytesWritten)} written
+                {zip.skipped > 0 ? ` · ${zip.skipped} skipped` : ""}
+                {zip.current ? ` · ${zip.current}` : ""}
+                <br />
+                Keep this tab open until it finishes.
+              </div>
+            )}
+            {saveQueue && (
+              <div className="muted">
+                Saving {saveQueue.done} of {saveQueue.total}
+                {saveQueue.failed > 0 ? ` · ${saveQueue.failed} failed` : ""}
+                <br />
+                Keep this tab open, and allow multiple downloads if your browser asks.
+              </div>
+            )}
+            {zipNote && !zip && !saveQueue && <div className="muted">{zipNote}</div>}
+            {!zipReady && !saveQueue && uploads.length > 0 && (
+              <div className="muted">
+                Download all saves the files one at a time. A single ZIP of the whole event needs Chrome or Edge on a
+                computer.
+              </div>
+            )}
 
             {loadingMedia && <div className="muted">Preparing secure links…</div>}
 

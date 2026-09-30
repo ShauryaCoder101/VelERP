@@ -26,7 +26,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   return Response.json(contact);
 }
 
-export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { role, id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+  if (!requireMinLevel(role, 3)) return new Response("Forbidden", { status: 403 });
+
   const { id } = await context.params;
   await prisma.salesContact.delete({ where: { id } });
   return Response.json({ ok: true });

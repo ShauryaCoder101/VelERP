@@ -3,6 +3,8 @@ import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
 
 export async function GET(request: Request) {
   const { id: userId, role } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const isManager = requireMinLevel(role, 2) || role === "Accountant";
   const claims = await prisma.expenseClaim.findMany({
     where: isManager ? undefined : { userId },

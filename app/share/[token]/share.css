@@ -1,0 +1,70 @@
+/* The ZIP is built in the browser and can run for hours, so it needs more than
+   a line of status text: a bar, a byte count and a way out. Kept here rather
+   than in globals.css because nothing else in the ERP shows this. */
+
+.share-zip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin: -4px 0 20px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+}
+
+.share-zip-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+  flex: 1 1 320px;
+}
+
+.share-zip-line {
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  color: var(--ink-body);
+}
+
+.share-zip-file {
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  /* Paths run long; clip rather than reflow the whole row on every file. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-zip-track {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.share-zip-track > span {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  transition: width 0.3s linear;
+}
+
+/* Total unknown: a moving stripe says "working" without claiming progress. */
+.share-zip-track-idle > span {
+  width: 30%;
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+  animation: share-zip-sweep 1.4s linear infinite;
+}
+
+@keyframes share-zip-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(333%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-zip-track-idle > span { animation: none; width: 100%; opacity: 0.5; }
+  .share-zip-track > span { transition: none; }
+}

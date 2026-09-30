@@ -95,6 +95,12 @@ const icons: Record<string, ReactNode> = {
       <path d="M9 12l2 2 4-4" />
     </svg>
   ),
+  photographers: (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 8.5A1.5 1.5 0 014.5 7h2.2l1.3-2h7l1.3 2h2.2A1.5 1.5 0 0120 8.5v9A1.5 1.5 0 0118.5 19h-14A1.5 1.5 0 013 17.5v-9z" />
+      <circle cx="11.5" cy="13" r="3.2" />
+    </svg>
+  ),
   research: (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={stroke} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="10.5" cy="10.5" r="6.5" />

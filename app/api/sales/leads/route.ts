@@ -2,7 +2,10 @@ import { prisma } from "../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 import { createNotification } from "../../../../lib/notifications";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const leads = await prisma.lead.findMany({
     include: { assignedToUser: { select: { id: true, name: true } } },
     orderBy: { createdAt: "desc" }
@@ -22,10 +25,15 @@ export async function POST(request: Request) {
   if (body.assignedTo) {
     const assignee = await prisma.user.findUnique({
       where: { id: body.assignedTo },
-      select: { status: true }
+      select: { status: true, role: true }
     });
     if (!assignee || assignee.status !== "ACTIVE") {
       return new Response("Cannot assign a lead to an inactive user", { status: 400 });
+    }
+    /* Photographers are third-party contractors with upload-only access — they can never
+       own a pipeline record. */
+    if (assignee.role === "PHOTOGRAPHER") {
+      return new Response("Cannot assign a lead to a photographer", { status: 400 });
     }
   }
 

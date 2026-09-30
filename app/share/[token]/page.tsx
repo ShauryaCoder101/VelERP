@@ -3,11 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Wordmark from "../../components/Wordmark";
+import {
+  canSaveZipToDisk,
+  downloadOneByOne,
+  pickZipFile,
+  safeFileName,
+  streamZipToDisk,
+  type ZipProgress
+} from "../../../lib/zip-download";
+import "./share.css";
 
 type Item = {
   id: string;
   name: string;
   fileType: string;
+  /** byte length, null for rows uploaded before sizes were recorded */
+  size: number | null;
   folder: string;
   thumb: string | null;
   preview: string | null;
@@ -54,7 +65,12 @@ const countdown = (ms: number) => {
   return `${Math.max(1, Math.floor(left / 60_000))} minutes remaining`;
 };
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const fmtBytes = (n: number) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 ** 2) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  return `${(n / 1024 ** 3).toFixed(2)} GB`;
+};
 
 export default function SharePage() {
   const { token } = useParams<{ token: string }>();
@@ -68,7 +84,16 @@ export default function SharePage() {
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dl, setDl] = useState<{ done: number; total: number } | null>(null);
-  const cancelRef = useRef(false);
+  const dlAbort = useRef<AbortController | null>(null);
+
+  const [zipReady, setZipReady] = useState(false);
+  const [zip, setZip] = useState<ZipProgress | null>(null);
+  const [zipNote, setZipNote] = useState("");
+  const zipAbort = useRef<AbortController | null>(null);
+
+  /* Checked after mount, not during render: the server has no showSaveFilePicker
+     and a render-time check would hydrate a different button than it painted. */
+  useEffect(() => setZipReady(canSaveZipToDisk()), []);
 
   useEffect(() => {
     fetch(`/api/share/${token}`)
@@ -168,27 +193,97 @@ export default function SharePage() {
 
   /* Browsers will not stream a 300GB zip, and building one server-side would
      both time out and double the egress. So downloads are triggered one file
-     at a time, in a queue the client can watch and stop. */
+     at a time, in a queue the client can watch and stop. The queue itself lives
+     in lib/zip-download.ts — the staff viewer needs exactly the same fallback. */
   const runDownloads = useCallback(async (items: Item[]) => {
     const queue = items.filter((i) => i.download);
     if (queue.length === 0) return;
-    cancelRef.current = false;
+    const controller = new AbortController();
+    dlAbort.current = controller;
     setDl({ done: 0, total: queue.length });
 
-    for (let i = 0; i < queue.length; i++) {
-      if (cancelRef.current) break;
-      const a = document.createElement("a");
-      a.href = queue[i].download!;
-      a.download = queue[i].name;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setDl({ done: i + 1, total: queue.length });
-      await sleep(queue.length > 1 ? 900 : 0);
-    }
+    /* No viaBlob: these URLs are signed with Content-Disposition: attachment,
+       so an anchor streams them to disk with the right name and nothing is
+       held in memory. */
+    await downloadOneByOne({
+      items: queue.map((i) => ({ url: i.download!, name: i.name })),
+      signal: controller.signal,
+      onProgress: (p) => setDl({ done: p.done, total: p.total })
+    });
+
+    dlAbort.current = null;
     setTimeout(() => setDl(null), 2500);
   }, []);
+
+  /* What the current view is called, for the ZIP's file name. */
+  const scopeLabel =
+    tab === "photos" ? "Photos" : tab === "videos" ? "Videos" : openFolder ? openFolder : "All files";
+
+  const runZip = async (picked: Promise<FileSystemFileHandle>, items: Item[], label: string) => {
+    let handle: FileSystemFileHandle;
+    try {
+      handle = await picked;
+    } catch {
+      // The user dismissed the save dialog. Nothing to report.
+      return;
+    }
+
+    const controller = new AbortController();
+    zipAbort.current = controller;
+    setZipNote("");
+    setZip({ filesDone: 0, filesTotal: items.length, skipped: 0, bytesWritten: 0, totalBytes: null, current: "" });
+
+    try {
+      const outcome = await streamZipToDisk({
+        handle,
+        entries: items.map((i) => ({
+          key: i.id,
+          path: i.folder ? `${i.folder}/${i.name}` : i.name,
+          size: i.size,
+          /* Known up front, so these never cost a request — they go straight
+             into the archive's _NOT_INCLUDED.txt. */
+          skipReason: i.archived ? "Original is in long-term storage" : null
+        })),
+        sign: async (ids, signal) => {
+          const res = await fetch(`/api/share/${token}/sign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids }),
+            signal
+          });
+          if (!res.ok) throw new Error(`Link server returned ${res.status}`);
+          const body = await res.json();
+          return body.urls ?? {};
+        },
+        signal: controller.signal,
+        onProgress: setZip
+      });
+
+      setZipNote(
+        outcome.cancelled
+          ? "Stopped. The part-written ZIP on your computer is incomplete — delete it and start again."
+          : outcome.skipped.length > 0
+            ? `${label} saved — ${outcome.filesWritten} file${outcome.filesWritten !== 1 ? "s" : ""}, ${fmtBytes(outcome.bytesWritten)}. ${outcome.skipped.length} could not be included; _NOT_INCLUDED.txt inside the ZIP lists them.`
+            : `${label} saved — ${outcome.filesWritten} file${outcome.filesWritten !== 1 ? "s" : ""}, ${fmtBytes(outcome.bytesWritten)}.`
+      );
+    } catch (err) {
+      /* streamZipToDisk names the file it gave up on, which is the difference
+         between "try again" and "that one video is the problem". */
+      const why = err instanceof Error && err.message ? ` ${err.message}.` : "";
+      setZipNote(`The ZIP could not be finished.${why} Start it again, or use Download selected.`);
+    } finally {
+      zipAbort.current = null;
+      setZip(null);
+    }
+  };
+
+  /* Not async, and the picker is the first thing it does: showSaveFilePicker
+     needs the click's user activation, and the first await would spend it. */
+  const startZip = () => {
+    if (!data || zip) return;
+    const label = `${safeFileName(data.event.name)} — ${safeFileName(scopeLabel)}`;
+    void runZip(pickZipFile(`${label}.zip`), scope, label);
+  };
 
   const copyLinks = async (items: Item[]) => {
     const text = items.filter((i) => i.download).map((i) => i.download).join("\n");
@@ -339,7 +434,7 @@ export default function SharePage() {
 
               <span className="share-toolbar-actions">
                 {dl && dl.done >= 0 && dl.done < dl.total && (
-                  <button className="btn-outline" type="button" onClick={() => { cancelRef.current = true; }}>Stop</button>
+                  <button className="btn-outline" type="button" onClick={() => dlAbort.current?.abort()}>Stop</button>
                 )}
                 <button
                   className="btn-outline"
@@ -352,26 +447,63 @@ export default function SharePage() {
                 <button
                   className="btn-outline"
                   type="button"
-                  disabled={selectedItems.length === 0 || !!dl}
+                  disabled={selectedItems.length === 0 || !!dl || !!zip}
                   onClick={() => runDownloads(selectedItems)}
                 >
                   Download selected ({selectedItems.length})
                 </button>
+                {/* One ZIP where the browser can write to disk; the per-file
+                    queue everywhere else. */}
                 <button
                   className="btn-primary"
                   type="button"
-                  disabled={downloadable.length === 0 || !!dl}
-                  onClick={() => runDownloads(downloadable)}
+                  disabled={downloadable.length === 0 || !!dl || !!zip}
+                  onClick={zipReady ? startZip : () => runDownloads(downloadable)}
                 >
-                  Download all ({downloadable.length})
+                  {zipReady
+                    ? `Download all as ZIP (${downloadable.length})`
+                    : `Download all (${downloadable.length})`}
                 </button>
               </span>
             </div>
 
-            {downloadable.length > 12 && (
+            {zip && (
+              <div className="share-zip">
+                <div className="share-zip-main">
+                  <span className="share-zip-line">
+                    Zipping {zip.filesDone} of {zip.filesTotal} · {fmtBytes(zip.bytesWritten)} written
+                    {zip.totalBytes
+                      ? ` of about ${fmtBytes(zip.totalBytes)} · ${Math.min(99, Math.floor((zip.bytesWritten / zip.totalBytes) * 100))}%`
+                      : ""}
+                    {zip.skipped > 0 ? ` · ${zip.skipped} skipped` : ""}
+                  </span>
+                  <span
+                    className={`share-zip-track${zip.totalBytes ? "" : " share-zip-track-idle"}`}
+                    aria-hidden="true"
+                  >
+                    <span
+                      style={
+                        zip.totalBytes
+                          ? { width: `${Math.min(99, (zip.bytesWritten / zip.totalBytes) * 100)}%` }
+                          : undefined
+                      }
+                    />
+                  </span>
+                  <span className="share-zip-file">{zip.current || "Preparing…"}</span>
+                </div>
+                <button className="btn-outline" type="button" onClick={() => zipAbort.current?.abort()}>
+                  Cancel ZIP
+                </button>
+              </div>
+            )}
+
+            {zipNote && !zip && <p className="share-hint">{zipNote}</p>}
+
+            {downloadable.length > 12 && !zip && (
               <p className="share-hint">
-                Your browser will ask permission to download multiple files — allow it, and they will save one after another.
-                For very large sets, Copy links works well with a download manager.
+                {zipReady
+                  ? "Download all as ZIP asks where to save, then writes one archive straight to your computer — keep this tab open until it finishes. Download selected still saves plain files, one per photo."
+                  : "Your browser will ask permission to download multiple files — allow it, and they will save one after another. For a single ZIP, use Chrome or Edge on a computer. For very large sets, Copy links works well with a download manager."}
               </p>
             )}
 

@@ -2,7 +2,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "../../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../../lib/rbac-server";
 
-export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const { id: eventId } = await context.params;
 
   const finances = await prisma.eventVendorFinance.findMany({

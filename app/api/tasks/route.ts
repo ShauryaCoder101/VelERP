@@ -4,6 +4,8 @@ import { sendTaskAssignedEmail } from "../../../lib/email";
 
 export async function GET(request: Request) {
   const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const tasks = await prisma.task.findMany({
     where: { assignedTo: userId },
     // The assigner's name is all a task row shows; the unselected default carries their hash.
@@ -26,11 +28,16 @@ export async function POST(request: Request) {
   const assignee = body.assignedTo
     ? await prisma.user.findUnique({
         where: { id: body.assignedTo },
-        select: { status: true }
+        select: { status: true, role: true }
       })
     : null;
   if (!assignee || assignee.status !== "ACTIVE") {
     return new Response("Cannot assign a task to an inactive user", { status: 400 });
+  }
+  /* Photographers are third-party contractors whose only reach into the ERP is uploading
+     to their granted events — internal work cannot be handed to them. */
+  if (assignee.role === "PHOTOGRAPHER") {
+    return new Response("Cannot assign a task to a photographer", { status: 400 });
   }
 
   const task = await prisma.task.create({

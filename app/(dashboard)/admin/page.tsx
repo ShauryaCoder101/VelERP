@@ -44,7 +44,7 @@ export default function AdminPage() {
   const [actionError, setActionError] = useState("");
 
   const load = () => {
-    fetch("/api/team?includeInactive=1").then((r) => r.json()).then((d) => setUsers(d)).catch(() => {});
+    fetch("/api/team?includeInactive=1&includePhotographers=1").then((r) => r.json()).then((d) => setUsers(d)).catch(() => {});
     fetch("/api/auth/me").then((r) => r.json()).then((d) => {
       setCurrentUserId(d.id);
       const role = normalizeRole(d.role) as keyof typeof ROLE_LEVELS;

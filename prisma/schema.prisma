@@ -72,6 +72,13 @@ model User {
   assignedDeals    Deal[]            @relation("DealAssignedTo")
   sanctions        EventSanction[]   @relation("UserSanctions")
   mediaShares      MediaShare[]      @relation("MediaShareCreatedBy")
+
+  photographerProfile  PhotographerProfile?  @relation("PhotographerProfileUser")
+  createdPhotographers PhotographerProfile[] @relation("PhotographerProfileCreatedBy")
+  photographerAccess   PhotographerEventAccess[] @relation("PhotographerAccessPhotographer")
+  grantedPhotographerAccess PhotographerEventAccess[] @relation("PhotographerAccessGrantedBy")
+  revokedPhotographerAccess PhotographerEventAccess[] @relation("PhotographerAccessRevokedBy")
+  multipartSessions    MultipartSession[]
 }
 
 model Session {
@@ -107,6 +114,7 @@ model Event {
   finances    EventVendorFinance[]
   sanctions   EventSanction[]
   shares      MediaShare[]
+  photographerAccess PhotographerEventAccess[]
 }
 
 model Vendor {
@@ -274,6 +282,9 @@ model Upload {
   fileUrl   String
   fileType  String
   uploadedBy String
+  // Nullable because rows written before the column existed have no size on
+  // record; scripts/backfill-upload-sizes.mts fills them in from storage.
+  sizeBytes BigInt?
   createdAt DateTime @default(now())
 
   event     Event    @relation(fields: [eventId], references: [id])
@@ -454,6 +465,107 @@ model MediaShare {
 
   @@index([eventId])
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Third-party photographers.
+//
+// A photographer is an ordinary User with role PHOTOGRAPHER, so login, session
+// and deactivation all work unchanged. These two tables add the only things a
+// photographer needs that an employee does not: a spend ceiling, and an
+// explicit list of the events they may touch.
+// ---------------------------------------------------------------------------
+
+model PhotographerProfile {
+  userId String @id
+
+  /** Hard ceiling on what this account may ever upload. 1 TB. */
+  quotaBytes BigInt @default(1000000000000)
+
+  /* Bytes AUTHORISED, not bytes written: incremented when an upload URL is
+     signed, not when the object lands. Signing is the only moment we control,
+     so it is the only place a limit can actually bite. The cost is that an
+     abandoned single-PUT upload leaves its bytes counted; multipart aborts are
+     refunded explicitly. */
+  allocatedBytes BigInt @default(0)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  /* Cascade: the profile is an attribute of the account, not a record of its
+     own. Leaving it RESTRICT would make deleting a photographer impossible. */
+  user    User  @relation("PhotographerProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+  creator User? @relation("PhotographerProfileCreatedBy", fields: [createdById], references: [id])
+}
+
+model PhotographerEventAccess {
+  id             String    @id @default(uuid())
+  photographerId String
+  eventId        String
+  grantedById    String
+  grantedAt      DateTime  @default(now())
+  revokedAt      DateTime?
+  revokedById    String?
+
+  /* Cascade on the two FKs that define the grant. Revokes are soft — the row
+     survives forever — so under RESTRICT a single grant would permanently block
+     deleting the event or the photographer. A grant to a deleted event, or held
+     by a deleted account, means nothing, so it goes with it. grantedBy and
+     revokedBy stay as they are: those are audit trail, and an employee leaving
+     must not quietly erase who handed out access. */
+  photographer User  @relation("PhotographerAccessPhotographer", fields: [photographerId], references: [id], onDelete: Cascade)
+  grantedBy    User  @relation("PhotographerAccessGrantedBy", fields: [grantedById], references: [id])
+  revokedBy    User? @relation("PhotographerAccessRevokedBy", fields: [revokedById], references: [id])
+  event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  /* One row per pair, forever: re-granting clears revokedAt on the row that is
+     already there rather than stacking a second grant, so "is it revoked?" has
+     exactly one answer. */
+  @@unique([photographerId, eventId])
+  @@index([eventId])
+}
+
+/* The authoritative record of an open multipart upload.
+ *
+ * The signed ticket the client carries is tamper-proof but replayable: it is a
+ * bearer value with a 7 day life, and R2's AbortMultipartUpload is idempotent,
+ * so "abort succeeded" is not evidence that anything was actually discarded.
+ * Refunding a photographer's quota on that evidence let the same bytes be
+ * handed back on every call, which made the 1 TB ceiling decorative.
+ *
+ * So state lives here instead. OPEN -> COMPLETED and OPEN -> ABORTED are single
+ * conditional UPDATEs, and the refund is attached to the transition rather than
+ * to the storage call: exactly one abort can ever observe OPEN, so exactly one
+ * refund can ever happen. */
+model MultipartSession {
+  /** The S3/R2 upload id. Unique per upload, so it is the natural key. */
+  uploadId String @id
+
+  userId  String
+  key     String
+  eventId String
+
+  /* Which storage profile the upload was opened against ("media" | "document").
+     Needed because the janitor has only this row to work from and must abort
+     against the right bucket. */
+  purpose String @default("media")
+
+  fileSize BigInt
+  partSize BigInt
+
+  /** Quota reserved at create time. 0 for employees, who have no ceiling. */
+  bytesCharged BigInt @default(0)
+
+  /** OPEN | COMPLETED | ABORTED. Only OPEN may be claimed. */
+  state String @default("OPEN")
+
+  createdAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /** The janitor's query: OPEN rows older than a cutoff. */
+  @@index([state, createdAt])
 }
 
 // ---------------------------------------------------------------------------

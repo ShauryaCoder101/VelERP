@@ -1,7 +1,10 @@
 import { prisma } from "../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../lib/rbac-server";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const accounts = await prisma.account.findMany({
     include: {
       _count: { select: { contacts: true, deals: true } }

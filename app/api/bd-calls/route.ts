@@ -2,7 +2,10 @@ import { prisma } from "../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../lib/rbac-server";
 import { createNotification } from "../../../lib/notifications";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const calls = await prisma.bdCall.findMany({
     include: { addedByUser: { select: { id: true, name: true, designation: true } } },
     orderBy: { callDate: "desc" }

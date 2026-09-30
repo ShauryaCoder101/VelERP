@@ -57,7 +57,7 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       fromDate: true,
       toDate: true,
       uploads: {
-        select: { id: true, fileUrl: true, fileType: true, createdAt: true },
+        select: { id: true, fileUrl: true, fileType: true, sizeBytes: true, createdAt: true },
         orderBy: { createdAt: "asc" }
       }
     }
@@ -117,6 +117,11 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
         id: u.id,
         name,
         fileType: u.fileType,
+        /* Number, not BigInt: Response.json throws on a BigInt. A photo or a
+           video is nowhere near 2^53 bytes, so nothing is lost. Null for rows
+           written before the column existed — the ZIP still works, it just
+           cannot show a percentage. */
+        size: u.sizeBytes === null ? null : Number(u.sizeBytes),
         folder: folderFromFileUrl(u.fileUrl, event.id),
         archived: cold,
         thumb,

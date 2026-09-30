@@ -56,6 +56,18 @@ const typeIcon: Record<string, ReactNode> = {
     <svg {...svgBase}>
       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
     </svg>
+  ),
+  photographer_account: (
+    <svg {...svgBase}>
+      <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.3-2h7l1.3 2h2.2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-14A1.5 1.5 0 0 1 3 17.5v-9z" />
+      <circle cx="11.5" cy="13" r="3.2" />
+    </svg>
+  ),
+  photographer_access: (
+    <svg {...svgBase}>
+      <rect x="3" y="11" width="18" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0" /><line x1="12" y1="15" x2="12" y2="17.5" />
+    </svg>
   )
 };
 

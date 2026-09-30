@@ -1,0 +1,203 @@
+/* Photographer panel. Only the pieces the shared design system has no class for:
+   removable access chips, the quota meter, the event picker and the credential hand-off
+   card. Everything else on the page reuses panel / table-wrap / modal-card / input. */
+
+.tpp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.tpp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.tpp-toggle input { accent-color: var(--red); }
+
+/* ── Access chips ─────────────────────────────────────────── */
+
+.tpp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  max-width: 340px;
+}
+
+.tpp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border: 1px solid var(--border);
+}
+
+.tpp-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tpp-chip-x:hover { background: var(--red-soft); color: var(--red); }
+
+/* ── Quota meter ──────────────────────────────────────────── */
+
+.tpp-quota { min-width: 118px; }
+
+.tpp-quota-label {
+  font-size: 12px;
+  color: var(--ink-body);
+  white-space: nowrap;
+}
+
+.tpp-quota-track {
+  margin-top: 5px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+
+.tpp-quota-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ink-soft);
+}
+
+/* Colour is the only warning the number itself does not give at a glance. */
+.tpp-quota-fill.warn { background: #d18b00; }
+.tpp-quota-fill.full { background: var(--red); }
+
+/* ── Event picker ─────────────────────────────────────────── */
+
+.tpp-picker-list {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tpp-picker-option {
+  display: block;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-body);
+}
+
+.tpp-picker-option:last-child { border-bottom: 0; }
+.tpp-picker-option:hover { background: var(--gray-50); }
+
+.tpp-picker-option strong { display: block; font-size: 13px; font-weight: 600; }
+.tpp-picker-option span { font-size: 11.5px; color: var(--ink-soft); }
+
+.tpp-picker-empty {
+  padding: 16px 11px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+/* ── Credential hand-off ──────────────────────────────────── */
+
+.tpp-cred {
+  border: 1px solid var(--red-line);
+  background: var(--red-soft);
+  border-radius: 8px;
+  padding: 14px;
+  margin: 4px 0 10px;
+}
+
+.tpp-cred-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.tpp-cred-row:first-of-type { margin-top: 0; }
+
+.tpp-cred-label {
+  flex: 0 0 74px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.tpp-cred-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+  color: var(--ink);
+}
+
+.tpp-cred-copy {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink-body);
+  cursor: pointer;
+}
+
+.tpp-cred-copy:hover { border-color: var(--red); color: var(--red); }
+
+.tpp-pw-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.tpp-pw-row .input { flex: 1 1 auto; min-width: 0; }
+
+.tpp-name-cell strong { display: block; font-size: 13.5px; }
+.tpp-name-cell span { font-size: 11.5px; color: var(--ink-soft); }
+
+.tpp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tpp-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  /* The chip column is the one that cannot shrink gracefully; letting it run the full
+     width of the (already scrolling) table beats truncating event names. */
+  .tpp-chips { max-width: none; }
+  .tpp-cred-row { flex-wrap: wrap; }
+  .tpp-cred-label { flex-basis: 100%; }
+}

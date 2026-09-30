@@ -21,6 +21,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Vendor Management", href: "/vendor-management", minLevel: 3, icon: "vendors" },
       { label: "Artist Onboarding", href: "/artist-onboarding", minLevel: 3, icon: "artists" },
       { label: "Event Uploads", href: "/event-uploads", minLevel: 3, icon: "uploads" },
+      /* Level 4 — every employee. Whoever is running a shoot has to be able to issue the
+         photographer their credentials on the day, so this is not an admin screen. */
+      { label: "Photographers", href: "/photographers", minLevel: 4, icon: "photographers" },
       { label: "Research", href: "/research", minLevel: 4, icon: "research" }
     ]
   },

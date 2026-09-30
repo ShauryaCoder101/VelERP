@@ -78,6 +78,12 @@ type MultipartOpts = {
   eventId: string;
   relativePath: string;
   purpose: "media" | "document";
+  /* The key /api/uploads/presign already minted for this file, signed so the
+     server will accept it back. Passing it through is what makes the original
+     land on the same key the thumbnail and preview slots were signed against;
+     without it the multipart route mints a second key and the derivatives are
+     orphaned. Optional only so callers that never call presign still work. */
+  reservation?: string;
 };
 
 const api = async (payload: Record<string, unknown>) => {
@@ -86,31 +92,38 @@ const api = async (payload: Record<string, unknown>) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error("Upload could not be prepared");
+  if (!res.ok) {
+    /* The server's message is the useful one — "Upload limit reached" or "You
+       don't have access to this event" tells the uploader what to do next. */
+    const said = await res.json().catch(() => null);
+    throw new Error(said?.error || "Upload could not be prepared");
+  }
   return res.json();
 };
 
 const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: ProgressFn) => {
-  const { uploadId, key, fileUrl } = await api({
+  /* fileSize is declared up front because the server signs a Content-Length
+     into every part URL. The part layout therefore has to come back from the
+     server rather than being recomputed here — a disagreement of one byte would
+     make storage reject the part. */
+  const {
+    fileUrl,
+    token,
+    partSize,
+    partCount: count
+  }: { fileUrl: string; token: string; partSize: number; partCount: number } = await api({
     action: "create",
     purpose: opts.purpose,
     eventId: opts.eventId,
     relativePath: opts.relativePath,
     fileName: file.name,
-    fileType: contentTypeOf(file)
+    fileType: contentTypeOf(file),
+    fileSize: file.size,
+    reservation: opts.reservation
   });
 
-  const partSize = partSizeFor(file.size);
-  const count = Math.max(1, Math.ceil(file.size / partSize));
   const numbers = Array.from({ length: count }, (_, i) => i + 1);
-
-  // Signatures are minted in batches; one request per part would be absurd.
   const urls: Record<number, string> = {};
-  for (let i = 0; i < numbers.length; i += 500) {
-    const batch = numbers.slice(i, i + 500);
-    const { urls: got } = await api({ action: "sign", purpose: opts.purpose, key, uploadId, partNumbers: batch });
-    Object.assign(urls, got);
-  }
 
   const loaded = new Map<number, number>();
   const report = () => {
@@ -156,13 +169,7 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
 
         // An expired signature is worth re-minting once before giving up.
         if (res.status === 403) {
-          const { urls: fresh } = await api({
-            action: "sign",
-            purpose: opts.purpose,
-            key,
-            uploadId,
-            partNumbers: [partNumber]
-          });
+          const { urls: fresh } = await api({ action: "sign", token, partNumbers: [partNumber] });
           Object.assign(urls, fresh);
         }
 
@@ -172,31 +179,54 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
     }
   };
 
+  /* Everything after create lives in here. The part-signing loop used to sit
+     above the try, so a network blip or a 5xx while minting signatures threw
+     past the abort: the multipart upload stayed open in the bucket forever and,
+     for a photographer, the bytes it reserved stayed charged forever. Nothing
+     between create and complete may escape without aborting. */
   try {
+    // Signatures are minted in batches; one request per part would be absurd.
+    for (let i = 0; i < numbers.length; i += 500) {
+      const batch = numbers.slice(i, i + 500);
+      const { urls: got } = await api({ action: "sign", token, partNumbers: batch });
+      Object.assign(urls, got);
+    }
+
     await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, count) }, worker));
     await api({
       action: "complete",
-      purpose: opts.purpose,
-      key,
-      uploadId,
+      token,
       parts: [...etags.entries()].map(([partNumber, etag]) => ({ partNumber, etag }))
     });
     onProgress(100);
-    return fileUrl as string;
+    return fileUrl;
   } catch (error) {
-    // Leave no half-uploaded parts behind to be billed for.
-    await api({ action: "abort", purpose: opts.purpose, key, uploadId }).catch(() => {});
+    /* Leave no half-uploaded parts behind to be billed for — and, for a
+       photographer, this is what gives the reserved bytes back. */
+    await api({ action: "abort", token }).catch(() => {});
     throw error;
   }
+};
+
+/** Everything uploadFile accepts. Exported so callers can type their options. */
+export type UploadFileOpts = MultipartOpts & {
+  /** presign's single-PUT slot; only used when the file is under the threshold */
+  presignedUrl?: string;
+  /** the URL that slot writes to, returned as-is on the single-PUT path */
+  fileUrl?: string;
 };
 
 /**
  * Uploads one file and returns the URL it was stored at.
  * Small files take a single PUT; large ones are split and retried per part.
+ *
+ * Pass `reservation` from the presign response whenever there is one: it is
+ * what keeps the object on the key the thumbnail and preview were signed
+ * against, on both paths.
  */
 export const uploadFile = async (
   file: File,
-  opts: MultipartOpts & { presignedUrl?: string; fileUrl?: string },
+  opts: UploadFileOpts,
   onProgress: ProgressFn
 ): Promise<string> => {
   if (file.size <= MULTIPART_THRESHOLD && opts.presignedUrl && opts.fileUrl) {

@@ -3,7 +3,10 @@ import { prisma } from "../../../../../lib/db";
 import { getRequestUser, requireMinLevel } from "../../../../../lib/rbac-server";
 import { createNotification } from "../../../../../lib/notifications";
 
-export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+
   const { id } = await context.params;
   const deal = await prisma.deal.findUnique({
     where: { id },
@@ -29,10 +32,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   if (body.assignedTo) {
     const assignee = await prisma.user.findUnique({
       where: { id: body.assignedTo },
-      select: { status: true }
+      select: { status: true, role: true }
     });
     if (!assignee || assignee.status !== "ACTIVE") {
       return new Response("Cannot assign a deal to an inactive user", { status: 400 });
+    }
+    if (assignee.role === "PHOTOGRAPHER") {
+      return new Response("Cannot assign a deal to a photographer", { status: 400 });
     }
   }
 
@@ -61,7 +67,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   return Response.json(deal);
 }
 
-export async function DELETE(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { role, id: userId } = await getRequestUser(request);
+  if (!userId) return new Response("Forbidden", { status: 403 });
+  if (!requireMinLevel(role, 3)) return new Response("Forbidden", { status: 403 });
+
   const { id } = await context.params;
   await prisma.deal.delete({ where: { id } });
   return Response.json({ ok: true });

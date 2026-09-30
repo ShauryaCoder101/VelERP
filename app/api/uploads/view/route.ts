@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getProfile, resolveForUrl } from "../../../../lib/storage";
 import { isDerivedKey } from "../../../../lib/archive";
 import { getRequestUser } from "../../../../lib/rbac-server";
+import { displayNameFromFileUrl } from "../../../../lib/uploadKey";
 
 const EXPIRES = 60 * 60; // an hour is long enough to browse a shoot
 const MAX_BATCH = 300;
@@ -10,7 +11,7 @@ const MAX_BATCH = 300;
 /* Buckets are private, so nothing renders from a raw URL — every read is a
    short-lived signed GET minted here. The bucket is chosen from the stored
    URL, which is how pre-R2 objects keep working untouched. */
-const signOne = async (fileUrl: string, archived: boolean) => {
+const signOne = async (fileUrl: string, archived: boolean, downloadAs?: string) => {
   const found = resolveForUrl(fileUrl);
   if (!found) return null;
 
@@ -24,9 +25,23 @@ const signOne = async (fileUrl: string, archived: boolean) => {
   }
 
   try {
-    return await getSignedUrl(profile.client, new GetObjectCommand({ Bucket: profile.bucket, Key: key }), {
-      expiresIn: EXPIRES
-    });
+    return await getSignedUrl(
+      profile.client,
+      new GetObjectCommand({
+        Bucket: profile.bucket,
+        Key: key,
+        /* `download` on a cross-origin anchor is ignored, so a browser handed a
+           plain signed URL displays the photo instead of saving it. The
+           disposition therefore has to be signed into the URL itself — the same
+           thing app/api/share/[token]/route.ts does for client galleries. With
+           it, the browser streams the file to disk on its own and nothing is
+           buffered in the page. */
+        ...(downloadAs
+          ? { ResponseContentDisposition: `attachment; filename="${downloadAs.replace(/"/g, "")}"` }
+          : {})
+      }),
+      { expiresIn: EXPIRES }
+    );
   } catch {
     return null;
   }
@@ -55,9 +70,15 @@ export async function POST(request: Request) {
   const urls: string[] = Array.isArray(body.urls) ? body.urls.slice(0, MAX_BATCH) : [];
   const archivedUrls: string[] = Array.isArray(body.archived) ? body.archived : [];
   const cold = new Set(archivedUrls);
+  /* Opt-in, because the same batch endpoint feeds the gallery: a thumbnail
+     signed as an attachment would download instead of rendering in an <img>. */
+  const asDownload = body.download === true;
 
   const entries = await Promise.all(
-    urls.map(async (url) => [url, await signOne(url, cold.has(url))] as const)
+    urls.map(
+      async (url) =>
+        [url, await signOne(url, cold.has(url), asDownload ? displayNameFromFileUrl(url) : undefined)] as const
+    )
   );
 
   const signed: Record<string, string> = {};

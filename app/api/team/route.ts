@@ -11,12 +11,19 @@ export async function GET(request: Request) {
   /* This one endpoint feeds both the admin panel, which has to see people who have
      left in order to reactivate them, and every "assign to" picker, which must not
      offer them. Inactive rows are therefore opt-in and only for admins. */
-  const includeInactive =
-    new URL(request.url).searchParams.get("includeInactive") === "1" &&
-    requireMinLevel(role, 2);
+  const params = new URL(request.url).searchParams;
+  const includeInactive = params.get("includeInactive") === "1" && requireMinLevel(role, 2);
+
+  /* Third-party photographers are contractors with upload-only access, not staff — they
+     must never turn up in an "assign to" picker or a team roster. Same admin-only opt-in
+     as inactive rows, because the admin panel is the one screen that manages them. */
+  const includePhotographers = params.get("includePhotographers") === "1" && requireMinLevel(role, 2);
 
   const users = await prisma.user.findMany({
-    where: includeInactive ? undefined : { status: "ACTIVE" },
+    where: {
+      ...(includeInactive ? {} : { status: "ACTIVE" as const }),
+      ...(includePhotographers ? {} : { role: { not: "PHOTOGRAPHER" as const } })
+    },
     select: {
       id: true,
       uid: true,
