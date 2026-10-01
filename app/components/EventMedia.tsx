@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { folderFromFileUrl, displayNameFromFileUrl, derivativeUrlFor } from "../../lib/uploadKey";
 import { makeDerivatives } from "../../lib/derivatives";
 import { uploadFile, MULTIPART_THRESHOLD } from "../../lib/upload-client";
@@ -30,7 +31,9 @@ type ActiveShare = {
   viewCount: number;
   lastViewedAt: string | null;
   createdAt: string;
-  creator: { name: string };
+  /* Photographers can mint links for their own events now, so whose name is on a
+     link is no longer a given — the badge is what tells the two apart. */
+  creator: { name: string; isPhotographer: boolean };
 };
 
 type Props = {
@@ -148,6 +151,14 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
   const [shareExpires, setShareExpires] = useState<number | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  /* Deleting a link cuts a client off mid-delivery, so it is confirmed rather than
+     fired straight off the row. The error slot is here too: the server refuses
+     photographers by design, and that refusal has to be readable. */
+  const [shareDeleteTarget, setShareDeleteTarget] = useState<ActiveShare | null>(null);
+  const [shareDeleteError, setShareDeleteError] = useState("");
+  /* Deleting has its own flag: it shares a dialog stack with the create form, and
+     reusing shareBusy made the Create button read "Creating…" during a delete. */
+  const [shareDeleteBusy, setShareDeleteBusy] = useState(false);
 
   const [signed, setSigned] = useState<Record<string, string>>({});
   const [loadingMedia, setLoadingMedia] = useState(false);
@@ -627,9 +638,33 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
     }
   };
 
-  const revokeShare = async (id: string) => {
-    await fetch(`/api/share?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
-    void loadShares();
+  /* "Delete" in the UI; the row is soft-revoked server side so the record of what was
+     shared with whom survives. */
+  const deleteShare = async () => {
+    if (!shareDeleteTarget) return;
+    setShareDeleteError("");
+    setShareDeleteBusy(true);
+    try {
+      const res = await fetch(`/api/share?id=${encodeURIComponent(shareDeleteTarget.id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        let message = "Could not delete this link.";
+        try {
+          const body = JSON.parse(text);
+          if (typeof body?.error === "string") message = body.error;
+        } catch {
+          if (text) message = text;
+        }
+        setShareDeleteError(message);
+        return;
+      }
+      setShareDeleteTarget(null);
+      void loadShares();
+    } catch {
+      setShareDeleteError("Could not delete this link.");
+    } finally {
+      setShareDeleteBusy(false);
+    }
   };
 
   const copyExisting = async (token: string, id: string) => {
@@ -983,7 +1018,27 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
                       <div className="share-row-main">
                         <strong>{s.folder || "Whole event"}</strong>
                         <span className="muted">
-                          {s.creator.name} · expires in {daysLeft} day{daysLeft !== 1 ? "s" : ""} ·{" "}
+                          {s.creator.name}
+                          {/* Inline because this dialog has no stylesheet of its own and
+                              globals.css is shared with every other screen. */}
+                          {s.creator.isPhotographer ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                margin: "0 2px 0 5px",
+                                padding: "1px 6px",
+                                borderRadius: 999,
+                                fontSize: 10.5,
+                                background: "var(--gray-100)",
+                                color: "var(--gray-700)",
+                                border: "1px solid var(--border)"
+                              }}
+                            >
+                              Photographer
+                            </span>
+                          ) : null}{" "}
+                          · expires
+                          in {daysLeft} day{daysLeft !== 1 ? "s" : ""} ·{" "}
                           {s.viewCount === 0 ? "not opened yet" : `opened ${s.viewCount}×`}
                         </span>
                       </div>
@@ -991,8 +1046,15 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
                         <button className="edit-btn" type="button" onClick={() => copyExisting(s.token, s.id)}>
                           {copiedId === s.id ? "Copied" : "Copy"}
                         </button>
-                        <button className="edit-btn" type="button" onClick={() => revokeShare(s.id)}>
-                          Revoke
+                        <button
+                          className="edit-btn"
+                          type="button"
+                          onClick={() => {
+                            setShareDeleteError("");
+                            setShareDeleteTarget(s);
+                          }}
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -1003,7 +1065,8 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
 
             <p className="muted">
               Anyone with the link can view and download this media. No sign-in, and nothing else about the
-              event is shown.
+              event is shown.{" "}
+              <Link href="/client-links">See all open client links</Link>
             </p>
 
             <label className="auth-label" htmlFor="share-scope">What to share</label>
@@ -1073,6 +1136,50 @@ export default function EventMedia({ eventId, uploads, onUploaded }: Props) {
               )}
               <button className="btn-primary" type="button" onClick={createShareLink} disabled={shareBusy}>
                 {shareBusy ? "Creating…" : shareLink ? "Create a new link" : "Create link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation — sits above the link dialog rather than replacing it, so the
+          list is still behind and it is obvious which link is going. Backdrop dismiss is
+          off while the request is in flight: closing mid-delete would hide the outcome,
+          error included. */}
+      {shareDeleteTarget && (
+        <div
+          className="modal-overlay"
+          style={{ zIndex: 95 }}
+          onClick={() => {
+            if (!shareDeleteBusy) setShareDeleteTarget(null);
+          }}
+        >
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete this client link?</h3>
+            <p>{shareDeleteTarget.folder || "Whole event"}</p>
+            <p className="muted">The client will no longer be able to open this link.</p>
+            {shareDeleteError ? (
+              <p className="auth-error" role="alert">
+                {shareDeleteError}
+              </p>
+            ) : null}
+            <div className="modal-actions">
+              <button
+                className="btn-outline hover-text"
+                type="button"
+                onClick={() => setShareDeleteTarget(null)}
+                disabled={shareDeleteBusy}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                onClick={deleteShare}
+                disabled={shareDeleteBusy}
+                style={{ background: "var(--red)" }}
+              >
+                {shareDeleteBusy ? "Deleting…" : "Delete link"}
               </button>
             </div>
           </div>

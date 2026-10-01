@@ -8,7 +8,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "../../../../lib/db";
-import { getProfile } from "../../../../lib/storage";
+import { getProfile, type StorageProfile } from "../../../../lib/storage";
 import { getUploader, type Uploader } from "../../../../lib/rbac-server";
 import { buildUploadKey } from "../../../../lib/uploadKey";
 import { partSizeFor } from "../../../../lib/upload-client";
@@ -100,6 +100,63 @@ const partLength = (layout: Layout, partNumber: number) =>
 
 const profileFor = (purpose: string) => getProfile(purpose === "media" ? "media" : "document");
 
+/* Did an object already claim this key?
+ *
+ * A reservation is a 24-hour bearer value for ONE key, and nothing consumed it:
+ * whoever held it could open a second multipart upload on a key they had
+ * already completed and registered, and CompleteMultipartUpload would overwrite
+ * the object in place. The Upload row still points at the same URL, so the
+ * gallery, the client share link and the ZIP would all serve the new bytes
+ * under the old filename. That is a replace, and a photographer must never be
+ * able to replace a photo — but the rule is not about photographers: a key is
+ * written once, by anyone, so employees are held to it too.
+ *
+ * Three questions, cheapest first, because any one of them saying yes is
+ * enough:
+ *   1. does another multipart upload hold the key (still running, or finished)?
+ *   2. is there a registered file at it?  An original moved to Glacier by
+ *      rclone is GONE from the hot bucket, so the row is the only thing left
+ *      that knows the key is spoken for — question 3 would say "free".
+ *   3. is there simply an object there?  Catches everything that never became
+ *      a row, including a single-PUT original whose registration is still in
+ *      flight.
+ *
+ * "unknown" is storage failing to answer. Refuse then as well: guessing "free"
+ * is how an overwrite gets through, and the caller can retry in a moment. */
+type KeyState = "free" | "taken" | "unknown";
+
+const keyState = async (profile: StorageProfile, key: string): Promise<KeyState> => {
+  const session = await prisma.multipartSession.findFirst({
+    where: { key, state: { in: ["OPEN", "COMPLETED"] } },
+    select: { uploadId: true }
+  });
+  if (session) return "taken";
+
+  /* Upload.fileUrl is stored exactly as it was handed to the browser — this
+     same concatenation — so the plain form is the one that matches. The
+     percent-encoded form is checked too, for any caller that normalised the URL
+     before registering it; keys can contain spaces. */
+  const plain = `${profile.publicBaseUrl}/${key}`;
+  const encoded = `${profile.publicBaseUrl}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const registered = await prisma.upload.findFirst({
+    where: { fileUrl: { in: plain === encoded ? [plain] : [plain, encoded] } },
+    select: { id: true }
+  });
+  if (registered) return "taken";
+
+  try {
+    await profile.client.send(new HeadObjectCommand({ Bucket: profile.bucket, Key: key }));
+    return "taken";
+  } catch (error) {
+    // The SDK throws on a 404, so "definitely absent" arrives as an exception
+    // too. Only that one means free; everything else is storage not answering.
+    const notFound =
+      (error as { name?: string }).name === "NotFound" ||
+      (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404;
+    return notFound ? "free" : "unknown";
+  }
+};
+
 /* sign / complete / abort all start the same way: a valid ticket for this user,
    and the session row it names. The row, not the ticket, is the source of
    truth — it is what says whether this upload is still live. */
@@ -128,7 +185,13 @@ export async function POST(request: Request) {
   const uploader = await getUploader(request);
   if (!uploader) return new Response("Forbidden", { status: 403 });
 
-  const body = await request.json();
+  /* Parsed defensively: an empty or malformed POST must come back as a 400 the
+     caller can read, not an unhandled throw Next renders as a 500 — checked before
+     body.action is touched. (Same hardening as /api/share POST.) */
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return Response.json({ error: "Invalid request" }, { status: 400 });
+  }
 
   switch (body.action) {
     /* Reserve the key, charge the quota, and open the upload. */
@@ -171,6 +234,23 @@ export async function POST(request: Request) {
       } else {
         // Legacy callers that never went through presign still get a fresh key.
         key = buildUploadKey(eventId, body.relativePath ?? "", body.fileName ?? "upload");
+      }
+
+      /* Spend the reservation, or refuse. Before the quota is touched, so a
+         refusal costs nothing and there is no charge to unwind — and before
+         CreateMultipartUpload, so no parts are left in the bucket either.
+
+         This is a check, not a lock: two creates for one key can both pass it.
+         `complete` closes that window under an advisory lock; here the point is
+         that the ordinary reuse — a reservation replayed hours later against a
+         key that is now a photo in the gallery — never gets as far as opening
+         an upload. */
+      const state = await keyState(profile, key);
+      if (state === "taken") {
+        return Response.json({ error: "This file has already been uploaded" }, { status: 409 });
+      }
+      if (state === "unknown") {
+        return Response.json({ error: "Storage is unavailable — please try again" }, { status: 503 });
       }
 
       let charged = 0;
@@ -304,12 +384,48 @@ export async function POST(request: Request) {
 
       /* Claim the row BEFORE touching storage. Two completes in flight, or a
          complete racing an abort, both reach storage otherwise; only the one
-         that moves OPEN -> COMPLETED is allowed to. */
-      const claimed = await prisma.multipartSession.updateMany({
-        where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
-        data: { state: "COMPLETED", closedAt: new Date() }
+         that moves OPEN -> COMPLETED is allowed to.
+
+         The claim is per uploadId, so it settles two completes of the SAME
+         upload but says nothing about two different uploads racing for one
+         KEY — both would have passed create's check and both would call
+         CompleteMultipartUpload, the second overwriting the first. The key is
+         what needs serialising, so take a transaction-scoped advisory lock on
+         it: whoever holds it decides, and it is released when the transaction
+         ends, however it ends. hashtext collides in principle (32 bits), which
+         costs two unrelated keys a moment of waiting and nothing else.
+
+         A loser is left OPEN deliberately. Its parts are real and are being
+         billed; leaving it claimable is what lets the client abort and get its
+         bytes refunded through the one OPEN -> ABORTED transition. */
+      const claim = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${session.key}::text))`;
+
+        /* Excludes this session's own row, which is what keeps the "completed
+           but the response was lost" recovery below working. That case has one
+           session for the key: the claim moved it to COMPLETED, the SDK's
+           internal retry of CompleteMultipartUpload got NoSuchUpload, and the
+           catch branch HEADs the object and answers success. Nothing here sees
+           a rival, because the only COMPLETED row for the key is this one.
+           The same is true of the reopen path — it puts THIS row back to OPEN,
+           so a genuine retry still finds no rival and can claim again. */
+        const rival = await tx.multipartSession.findFirst({
+          where: { key: session.key, state: "COMPLETED", uploadId: { not: session.uploadId } },
+          select: { uploadId: true }
+        });
+        if (rival) return "taken" as const;
+
+        const won = await tx.multipartSession.updateMany({
+          where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
+          data: { state: "COMPLETED", closedAt: new Date() }
+        });
+        return won.count === 1 ? ("claimed" as const) : ("settled" as const);
       });
-      if (claimed.count !== 1) {
+
+      if (claim === "taken") {
+        return Response.json({ error: "This file has already been uploaded" }, { status: 409 });
+      }
+      if (claim === "settled") {
         return Response.json({ error: "This upload was already finished or cancelled" }, { status: 409 });
       }
 

@@ -1,7 +1,7 @@
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../../../lib/db";
 import { getRequestUser, getUploader } from "../../../lib/rbac-server";
-import { resolveForUrl } from "../../../lib/storage";
+import { getProfile, resolveForUrl } from "../../../lib/storage";
 import { hasEventAccess } from "../../../lib/photographers";
 
 export async function GET(request: Request) {
@@ -43,6 +43,24 @@ export async function POST(request: Request) {
         pointing at nothing, and we have no size to record. */
   const resolved = resolveForUrl(fileUrl);
   if (!resolved) return Response.json({ error: "That file is not in our storage" }, { status: 400 });
+
+  /* ...and, for a photographer, 3. the bucket is the media bucket.
+     resolveForUrl routes by prefix across every profile, so a documents-bucket
+     URL under uploads/<eventId>/ passes both checks below. A photographer is
+     confined to media by presign and by multipart create, but registration is a
+     separate door: a document key they had guessed or seen could be attached to
+     an event they hold and then read back through their own gallery, which
+     signs whatever the row points at. Compare the profile object itself —
+     getProfile memoises, so identity is the comparison — rather than the
+     purpose string, which this route never receives.
+
+     If R2 is unconfigured, getProfile("media") IS the S3 profile and this check
+     correctly becomes a no-op: one bucket holds both, so there is nothing to
+     separate. */
+  if (uploader.isPhotographer && resolved.profile !== getProfile("media")) {
+    return Response.json({ error: "That file is not in our storage" }, { status: 400 });
+  }
+
   if (!resolved.key.startsWith(`uploads/${eventId}/`) || resolved.key.includes("/.derived/")) {
     return Response.json({ error: "That file does not belong to this event" }, { status: 400 });
   }

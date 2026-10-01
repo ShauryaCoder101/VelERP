@@ -34,8 +34,9 @@ export async function GET(request: Request) {
     id: string;
     folder: string | null;
     expiresAt: Date;
+    eventId: string;
     event: { eventName: string; companyName: string };
-    creator: { name: string; email: string };
+    creator: { id: string; name: string; email: string; role: string };
   };
 
   // Each reminder stands alone: one failing query must not silence the others.
@@ -53,19 +54,79 @@ export async function GET(request: Request) {
         id: true,
         folder: true,
         expiresAt: true,
+        eventId: true,
         event: { select: { eventName: true, companyName: true } },
-        creator: { select: { name: true, email: true } }
+        // role decides who gets chased; a photographer's link is not theirs to chase.
+        creator: { select: { id: true, name: true, email: true, role: true } }
       }
     });
   } catch {
     expiring = [];
   }
 
-  const byCreator = new Map<string, { name: string; items: typeof expiring }>();
+  /* A photographer can create a client link now, and can therefore be a link's
+     creator — but this is an internal email. It lists other people's links,
+     tells the reader to open the ERP, and is addressed to staff. Sending it to
+     a third party leaks what we are doing for other clients.
+
+     So a photographer's link is chased by the employee who put them on that
+     event: PhotographerEventAccess.grantedById, the person who owns the
+     decision and can act on it. The email names the photographer so it is
+     obvious whose link it is. Employee-created links are untouched. */
+  type Recipient = { name: string; email: string };
+  const byPhotographer = expiring.filter((s) => s.creator.role === "PHOTOGRAPHER");
+  const grantors = new Map<string, Recipient>(); // keyed `${photographerId}:${eventId}`
+
+  if (byPhotographer.length > 0) {
+    try {
+      const grants = await prisma.photographerEventAccess.findMany({
+        // One query for every pair rather than one per share.
+        where: {
+          OR: byPhotographer.map((s) => ({ photographerId: s.creator.id, eventId: s.eventId })),
+          // A revoked grant is not a live relationship: the grantor is no longer on the
+          // event, so it must not supply the recipient for that photographer's link.
+          revokedAt: null,
+          // The recipient has to be here to act on it, like every other branch below.
+          grantedBy: { status: "ACTIVE" }
+        },
+        select: {
+          photographerId: true,
+          eventId: true,
+          grantedBy: { select: { name: true, email: true } }
+        }
+      });
+      for (const grant of grants) {
+        grantors.set(`${grant.photographerId}:${grant.eventId}`, grant.grantedBy);
+      }
+    } catch {
+      /* Left empty on purpose: every photographer-created link is then skipped
+         below without being stamped, so the next run tries again. */
+    }
+  }
+
+  type Item = { share: ExpiringShare; viaPhotographer: string | null };
+  const byRecipient = new Map<string, { name: string; items: Item[] }>();
+
   for (const share of expiring) {
-    const entry = byCreator.get(share.creator.email);
-    if (entry) entry.items.push(share);
-    else byCreator.set(share.creator.email, { name: share.creator.name, items: [share] });
+    let recipient: Recipient;
+    let viaPhotographer: string | null = null;
+
+    if (share.creator.role === "PHOTOGRAPHER") {
+      const grantor = grantors.get(`${share.creator.id}:${share.eventId}`);
+      /* No active grantor — they have left, or the grant predates this. Nobody
+         internal owns the link, and the photographer must not be told, so skip
+         it. Because remindedAt is only stamped for links an email went out for,
+         skipping leaves it to be picked up whenever someone does own it. */
+      if (!grantor) continue;
+      recipient = grantor;
+      viaPhotographer = share.creator.name;
+    } else {
+      recipient = { name: share.creator.name, email: share.creator.email };
+    }
+
+    const entry = byRecipient.get(recipient.email);
+    if (entry) entry.items.push({ share, viaPhotographer });
+    else byRecipient.set(recipient.email, { name: recipient.name, items: [{ share, viaPhotographer }] });
   }
 
   /* remindedAt is what stops a share being chased again, so only stamp the ones an
@@ -78,23 +139,31 @@ export async function GET(request: Request) {
      deliberate open question, not something handled below. */
   const remindedIds: string[] = [];
 
-  for (const [email, { name, items }] of byCreator) {
+  for (const [email, { name, items }] of byRecipient) {
+    /* "a gallery link you shared" is only true of the reader's own links. When
+       a photographer's link is in the batch the wording has to widen; the row
+       below says who actually created it. */
+    const anyFromPhotographer = items.some((i) => i.viaPhotographer !== null);
     const ok = await sendReminderEmail(
       email,
       `${items.length} client link${items.length !== 1 ? "s" : ""} expiring unopened`,
       "Client links expiring",
-      `${name}, ${items.length === 1 ? "a gallery link you shared has" : "these gallery links have"} not been opened yet and will expire within 48 hours.`,
-      items.map((s) =>
+      anyFromPhotographer
+        ? `${name}, ${items.length === 1 ? "a client gallery link has" : "these client gallery links have"} not been opened yet and will expire within 48 hours.`
+        : `${name}, ${items.length === 1 ? "a gallery link you shared has" : "these gallery links have"} not been opened yet and will expire within 48 hours.`,
+      items.map(({ share: s, viaPhotographer }) =>
         reminderRow(
           `${s.event.eventName} — ${s.event.companyName}`,
-          `${s.folder ? `Folder: ${s.folder} · ` : ""}Expires ${fmt(s.expiresAt)} · never opened`
+          `${s.folder ? `Folder: ${s.folder} · ` : ""}Expires ${fmt(s.expiresAt)} · never opened${
+            viaPhotographer ? ` · created by photographer ${viaPhotographer}` : ""
+          }`
         )
       ),
       "Open the event in the ERP to issue a fresh link, or check the client received the original."
     );
     if (ok) {
       sent.push(`links:${email}`);
-      remindedIds.push(...items.map((s) => s.id));
+      remindedIds.push(...items.map((i) => i.share.id));
     }
   }
 

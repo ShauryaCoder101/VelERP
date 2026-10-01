@@ -1,0 +1,70 @@
+/* Client link tracker. Only the pieces the shared design system has no class for:
+   the summary line, the filter row, the creator badge and the expiry emphasis.
+   Everything else reuses panel / table-wrap / team-table / modal-card / input. */
+
+.cl-summary {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.cl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.cl-search { width: 220px; max-width: 100%; }
+
+.cl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.cl-toggle input { accent-color: var(--red); }
+
+/* ── Cells ────────────────────────────────────────────────── */
+
+.cl-event-cell strong { display: block; font-size: 13.5px; font-weight: 600; }
+.cl-event-cell span { font-size: 11.5px; color: var(--ink-soft); }
+
+/* The event name is a link but must not shout — the row is the unit of attention. */
+.cl-event-link { color: inherit; text-decoration: none; }
+.cl-event-link:hover { color: var(--red); text-decoration: underline; }
+
+.cl-creator-cell strong { display: block; font-size: 13px; font-weight: 500; }
+
+.cl-badge {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border: 1px solid var(--border);
+}
+
+/* A link a client is about to lose is the only thing on this page worth colour. */
+.cl-soon { color: var(--red); font-weight: 500; }
+
+.cl-never { color: var(--ink-faint); }
+
+.cl-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.cl-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .cl-search { width: 100%; }
+}

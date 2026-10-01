@@ -23,6 +23,17 @@ import { signReservation } from "../../../../lib/uploadReservation";
 
 const MAX_URL_TTL = 60 * 60;
 
+/* A presigned PUT can be replayed until it expires: inside the window a photographer
+   could re-send a PUT and overwrite the photo they just uploaded (the single-PUT
+   original, or a .derived thumb/preview slot). Storage-level conditional writes
+   (If-None-Match) aren't available on the bucket yet, so for photographers — third
+   parties — we shrink the window instead. The client presigns each file immediately
+   before uploading that file's derivatives and original (tpp-login/upload uploadOne,
+   one file at a time), so 15 minutes is ample for the upload while cutting the replay
+   window; S3/R2 check expiry at request start, so a long upload that began in time
+   still completes. Employees, who are staff, keep the full hour. */
+const PHOTOGRAPHER_URL_TTL = 15 * 60;
+
 const positiveSafeInt = (value: unknown): number | null => {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isSafeInteger(n) || n <= 0) return null;
@@ -125,6 +136,9 @@ export async function POST(request: Request) {
      code path and a file that crosses the threshold mid-flight still works. */
   const reservation = signReservation({ key, eventId, userId: uploader.id, purpose });
 
+  // Photographers get the short replay window; employees keep the full hour.
+  const urlTtl = uploader.isPhotographer ? PHOTOGRAPHER_URL_TTL : MAX_URL_TTL;
+
   const sign = (objectKey: string, contentType: string, contentLength?: number) =>
     getSignedUrl(
       profile.client,
@@ -135,7 +149,7 @@ export async function POST(request: Request) {
         // Signed, so the caller cannot send more bytes than it declared.
         ...(contentLength === undefined ? {} : { ContentLength: contentLength })
       }),
-      { expiresIn: MAX_URL_TTL }
+      { expiresIn: urlTtl }
     );
 
   try {

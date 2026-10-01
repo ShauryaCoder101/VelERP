@@ -1233,6 +1233,12 @@ strong { font-weight: 600; color: var(--ink); }
   margin-bottom: 4px;
 }
 
+/* Inside a modal the card is the scroller (flex column, max-height 88vh). As a flex
+   item the list would otherwise shrink below its content and, with overflow hidden,
+   silently clip every row past the first handful. Keeping it at its natural height
+   hands the overflow to the card, so an event with fifty links scrolls to all of them. */
+.modal-card .share-list { flex-shrink: 0; }
+
 .share-list-head {
   padding: 8px 12px;
   background: var(--gray-50);

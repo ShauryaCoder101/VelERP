@@ -1,0 +1,51 @@
+/* The photographer's event gallery reuses the client gallery's chrome almost
+   whole (.share-page, .share-masthead, .share-main, .share-head). What is left
+   is the handful of things a signed-in screen has that a client link does not:
+   an identity in the masthead, a row of actions under the title, and a way to
+   mark which links a photographer created. */
+
+.tpp-masthead-end {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* The name can be long; the sign-out control must never be the thing that wraps. */
+.tpp-masthead-end .share-masthead-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tpp-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* Inline with the creator's name in the links list, so a staff link and a
+   photographer's link are told apart at a glance without a second column. */
+.tpp-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  vertical-align: 1px;
+}
+
+/* 375px: the masthead is the only row here that cannot shrink its way out of
+   trouble, so the name gives up its space before the controls do. */
+@media (max-width: 420px) {
+  .tpp-masthead-end { gap: 10px; }
+  .tpp-masthead-end .share-masthead-label { max-width: 40vw; }
+  .tpp-head-actions .btn-primary,
+  .tpp-head-actions .btn-outline { flex: 1 1 auto; justify-content: center; text-align: center; }
+}

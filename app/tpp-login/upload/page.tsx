@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { uploadFile, MULTIPART_THRESHOLD } from "../../../lib/upload-client";
 import { makeDerivatives } from "../../../lib/derivatives";
 import { markAsDirectoryInput, readDataTransfer, readFileInput, type DroppedFile } from "../../../lib/file-drop";
@@ -364,6 +365,32 @@ export default function PhotographerUploadPage() {
               ))}
             </select>
             {selectedEvent && <span className="cell-meta">Filing under {selectedEvent.companyName}</span>}
+
+            {/* Uploading is only half the job: the same events can be browsed —
+                every file on them, not just this photographer's — and shared
+                with a client from there. Listed per event rather than hung off
+                the dropdown, so the way through is visible without first
+                choosing something. */}
+            {/* Held back until the list has actually arrived: rendering the frame first
+                put an empty bordered box on screen on every load. */}
+            {loaded && events.length > 0 && (
+            <div className="share-list">
+              <div className="share-list-head">Your events</div>
+              {events.map((option) => (
+                <div key={option.id} className="share-row">
+                  <div className="share-row-main">
+                    <strong>{option.eventName}</strong>
+                    <span className="muted">{option.companyName}</span>
+                  </div>
+                  <div className="share-row-actions">
+                    <Link className="edit-btn" href={`/tpp-login/media/${option.id}`}>
+                      View photos &amp; client links
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+            )}
 
             <div
               className={`dropzone${dragging ? " dropzone-active" : ""}`}

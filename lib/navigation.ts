@@ -24,6 +24,9 @@ export const NAV_GROUPS: NavGroup[] = [
       /* Level 4 — every employee. Whoever is running a shoot has to be able to issue the
          photographer their credentials on the day, so this is not an admin screen. */
       { label: "Photographers", href: "/photographers", minLevel: 4, icon: "photographers" },
+      /* Sits with Photographers because it answers the question that team creates: links are
+         now minted by photographers too, and anyone running a shoot needs to see what is out. */
+      { label: "Client Links", href: "/client-links", minLevel: 4, icon: "links" },
       { label: "Research", href: "/research", minLevel: 4, icon: "research" }
     ]
   },

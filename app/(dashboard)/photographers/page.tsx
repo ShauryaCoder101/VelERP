@@ -77,6 +77,16 @@ const readError = async (res: Response, fallback: string) => {
   }
 };
 
+/* Older deployments answer these calls without the count; absence means "not reported",
+   not zero, so nothing is claimed unless the server actually said a number. */
+const revokedLinkNotice = async (res: Response) => {
+  const body = await res.json().catch(() => null);
+  const n = (body as { revokedLinks?: unknown } | null)?.revokedLinks;
+  return typeof n === "number" && n > 0
+    ? `${n} client link${n === 1 ? " was" : "s were"} deleted.`
+    : "";
+};
+
 export default function PhotographersPage() {
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
   const [events, setEvents] = useState<EventOption[]>([]);
@@ -99,6 +109,10 @@ export default function PhotographersPage() {
 
   // Only ever one modal open at a time, so a single slot is enough for whichever save failed.
   const [actionError, setActionError] = useState("");
+  /* Removing an event or deactivating an account also withdraws the client links that
+     photographer handed out. That is a side effect on people outside the ERP, so the
+     count comes back from the server and is reported rather than left to be noticed. */
+  const [actionNotice, setActionNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = async (includeInactive: boolean) => {
@@ -162,6 +176,7 @@ export default function PhotographersPage() {
 
   const handleCreate = async () => {
     setActionError("");
+    setActionNotice("");
     setBusy(true);
     const res = await fetch("/api/photographers", {
       method: "POST",
@@ -183,6 +198,7 @@ export default function PhotographersPage() {
   const handleGrant = async (eventId: string) => {
     if (!grantFor) return;
     setActionError("");
+    setActionNotice("");
     setBusy(true);
     const res = await fetch(`/api/photographers/${grantFor.id}/events`, {
       method: "POST",
@@ -202,6 +218,7 @@ export default function PhotographersPage() {
   const handleRevoke = async () => {
     if (!revokeTarget) return;
     setActionError("");
+    setActionNotice("");
     setBusy(true);
     const res = await fetch(
       `/api/photographers/${revokeTarget.photographer.id}/events/${revokeTarget.event.eventId}`,
@@ -212,6 +229,7 @@ export default function PhotographersPage() {
       setActionError(await readError(res, "Could not remove this access."));
       return;
     }
+    setActionNotice(await revokedLinkNotice(res));
     setRevokeTarget(null);
     await load(showInactive);
   };
@@ -220,6 +238,7 @@ export default function PhotographersPage() {
     if (!statusTarget) return;
     const next = statusTarget.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     setActionError("");
+    setActionNotice("");
     setBusy(true);
     const res = await fetch(`/api/photographers/${statusTarget.id}`, {
       method: "PATCH",
@@ -231,6 +250,7 @@ export default function PhotographersPage() {
       setActionError(await readError(res, "Could not change this account."));
       return;
     }
+    setActionNotice(await revokedLinkNotice(res));
     setStatusTarget(null);
     await load(showInactive);
   };
@@ -238,6 +258,7 @@ export default function PhotographersPage() {
   const handleResetPassword = async () => {
     if (!pwFor) return;
     setActionError("");
+    setActionNotice("");
     setBusy(true);
     const res = await fetch(`/api/photographers/${pwFor.id}`, {
       method: "PATCH",
@@ -285,6 +306,11 @@ export default function PhotographersPage() {
           <div>
             <h2>Photographer accounts ({photographers.length})</h2>
             <p className="muted">Every account is capped at {quotaLabel(1_000_000_000_000)} of uploads.</p>
+            {actionNotice ? (
+              <p className="muted" role="status">
+                {actionNotice}
+              </p>
+            ) : null}
           </div>
           <div className="tpp-toolbar">
             <label className="tpp-toggle">
@@ -645,7 +671,9 @@ export default function PhotographersPage() {
               <strong>{revokeTarget.event.eventName}</strong>?
             </p>
             <p className="muted">
-              Photos already uploaded stay on the event. Access can be given back at any time.
+              Photos already uploaded stay on the event. Any client links this photographer created for it are
+              deleted and will stop working for whoever holds them. Access can be given back at any time, but the
+              links cannot — new ones have to be created.
             </p>
             {actionError ? (
               <p className="auth-error" role="alert">
@@ -681,7 +709,9 @@ export default function PhotographersPage() {
                   Deactivate <strong>{statusTarget.name}</strong> ({statusTarget.email})?
                 </p>
                 <p className="muted">
-                  They will be signed out immediately and cannot log in or upload. Their photos stay on the events.
+                  They will be signed out immediately and cannot log in or upload. Their photos stay on the events,
+                  but every client link they created is deleted and will stop working for whoever holds them —
+                  reactivating the account does not bring those links back.
                 </p>
               </>
             ) : (
