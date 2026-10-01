@@ -79,6 +79,11 @@ model User {
   grantedPhotographerAccess PhotographerEventAccess[] @relation("PhotographerAccessGrantedBy")
   revokedPhotographerAccess PhotographerEventAccess[] @relation("PhotographerAccessRevokedBy")
   multipartSessions    MultipartSession[]
+
+  uploadLinks         UploadLink[]   @relation("UploadLinkPhotographer")
+  revokedUploadLinks  UploadLink[]   @relation("UploadLinkRevokedBy")
+  createdMediaFolders MediaFolder[]  @relation("MediaFolderCreatedBy")
+  uploadCharges       UploadCharge[]
 }
 
 model Session {
@@ -115,6 +120,8 @@ model Event {
   sanctions   EventSanction[]
   shares      MediaShare[]
   photographerAccess PhotographerEventAccess[]
+  uploadLinks        UploadLink[]
+  mediaFolders       MediaFolder[]
 }
 
 model Vendor {
@@ -285,10 +292,38 @@ model Upload {
   // Nullable because rows written before the column existed have no size on
   // record; scripts/backfill-upload-sizes.mts fills them in from storage.
   sizeBytes BigInt?
+  /**
+   * Set when the file came in through an open upload link rather than a login.
+   * uploadedBy stays the FIRM's account either way — the quota, the grant and
+   * the folder are all the firm's — so this is the only thing that can say
+   * WHICH of the firm's people actually sent it.
+   */
+  contributorId String?
   createdAt DateTime @default(now())
 
   event     Event    @relation(fields: [eventId], references: [id])
   user      User     @relation(fields: [uploadedBy], references: [id])
+  /**
+   * SetNull, not Cascade: a contributor record going away must never silently
+   * delete the files they uploaded — those belong to the event.
+   */
+  contributor UploadContributor? @relation(fields: [contributorId], references: [id], onDelete: SetNull)
+
+  @@index([contributorId])
+  /**
+   * This table had no index but its primary key, and three endpoints an
+   * anonymous link holder reaches read it BEFORE any quota, ceiling or storage
+   * check — the folder listing (DISTINCT on a regexp over every row of the
+   * event), registration's dedupe, and the multipart key check. On an instance
+   * holding hundreds of gigabytes of client media across 28 events that is a
+   * sequential scan per request, and the ERP's dashboard, tasks and sales pages
+   * share the instance, so the cost lands on the whole product rather than on
+   * uploads. All three are scoped to one event — the key check is passed its
+   * eventId for exactly that reason — so one composite index serves them, and
+   * it covers the plain `where: { eventId }` reads (the gallery, the ZIP, the
+   * per-link stats) as a bonus.
+   */
+  @@index([eventId, fileUrl])
 }
 
 model Task {
@@ -479,21 +514,54 @@ model MediaShare {
 model PhotographerProfile {
   userId String @id
 
-  /** Hard ceiling on what this account may ever upload. 1 TB. */
+  /**
+   * Hard ceiling on what this account may ever upload. 1 TB.
+   */
   quotaBytes BigInt @default(1000000000000)
 
-  /* Bytes AUTHORISED, not bytes written: incremented when an upload URL is
-     signed, not when the object lands. Signing is the only moment we control,
-     so it is the only place a limit can actually bite. The cost is that an
-     abandoned single-PUT upload leaves its bytes counted; multipart aborts are
-     refunded explicitly. */
+  /**
+   * Bytes AUTHORISED, not bytes written: incremented when an upload URL is
+   * signed, not when the object lands. Signing is the only moment we control,
+   * so it is the only place a limit can actually bite.
+   * Every charge is accounted for afterwards, so an authorisation nobody spent
+   * does not become a permanent debit: a multipart upload refunds on
+   * OPEN -> ABORTED, and a single-PUT original or derivative refunds through
+   * the UploadCharge ledger once its key is known not to be in storage.
+   */
   allocatedBytes BigInt @default(0)
+
+  /**
+   * The one folder inside every event that holds everything this firm uploads,
+   * from the main login and from every open link. Unique because it is a
+   * namespace: two firms sharing a folder name would share a key prefix, and
+   * the "is this key inside my root?" check that confines a contributor would
+   * then let one firm's link write into the other's folder.
+   * Nullable only for the moment between a profile being created and the name
+   * being derived; firmFolderName() in lib/upload-links.ts fills it in on first
+   * use and the migration backfilled every row that existed.
+   */
+  folderName String? @unique
+
+  /**
+   * When this firm's opportunistic housekeeping last ran — the charge sweep at
+   * presign and the multipart sweep at create share it.
+   * Both sit on the critical path of starting a file, and both are reachable by
+   * anyone holding a forwarded upload link, so a flood that is about to be
+   * refused would otherwise pay for a sweep per refused request. A sweep is
+   * claimed by moving this forward in one conditional UPDATE (see
+   * claimSweepSlot in lib/photographers.ts); only the writer that moves it
+   * sweeps, so the work is bounded at one pass per firm per minute however many
+   * requests arrive. Null means "never swept", which always wins the claim.
+   */
+  lastSweptAt DateTime?
 
   createdById String?
   createdAt   DateTime @default(now())
 
-  /* Cascade: the profile is an attribute of the account, not a record of its
-     own. Leaving it RESTRICT would make deleting a photographer impossible. */
+  /**
+   * Cascade: the profile is an attribute of the account, not a record of its
+   * own. Leaving it RESTRICT would make deleting a photographer impossible.
+   */
   user    User  @relation("PhotographerProfileUser", fields: [userId], references: [id], onDelete: Cascade)
   creator User? @relation("PhotographerProfileCreatedBy", fields: [createdById], references: [id])
 }
@@ -507,65 +575,375 @@ model PhotographerEventAccess {
   revokedAt      DateTime?
   revokedById    String?
 
-  /* Cascade on the two FKs that define the grant. Revokes are soft — the row
-     survives forever — so under RESTRICT a single grant would permanently block
-     deleting the event or the photographer. A grant to a deleted event, or held
-     by a deleted account, means nothing, so it goes with it. grantedBy and
-     revokedBy stay as they are: those are audit trail, and an employee leaving
-     must not quietly erase who handed out access. */
+  /**
+   * Cascade on the two FKs that define the grant. Revokes are soft — the row
+   * survives forever — so under RESTRICT a single grant would permanently block
+   * deleting the event or the photographer. A grant to a deleted event, or held
+   * by a deleted account, means nothing, so it goes with it. grantedBy and
+   * revokedBy stay as they are: those are audit trail, and an employee leaving
+   * must not quietly erase who handed out access.
+   */
   photographer User  @relation("PhotographerAccessPhotographer", fields: [photographerId], references: [id], onDelete: Cascade)
   grantedBy    User  @relation("PhotographerAccessGrantedBy", fields: [grantedById], references: [id])
   revokedBy    User? @relation("PhotographerAccessRevokedBy", fields: [revokedById], references: [id])
   event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  /* One row per pair, forever: re-granting clears revokedAt on the row that is
-     already there rather than stacking a second grant, so "is it revoked?" has
-     exactly one answer. */
+  /**
+   * One row per pair, forever: re-granting clears revokedAt on the row that is
+   * already there rather than stacking a second grant, so "is it revoked?" has
+   * exactly one answer.
+   */
   @@unique([photographerId, eventId])
   @@index([eventId])
 }
 
-/* The authoritative record of an open multipart upload.
- *
+/**
+ * The authoritative record of an open multipart upload.
  * The signed ticket the client carries is tamper-proof but replayable: it is a
  * bearer value with a 7 day life, and R2's AbortMultipartUpload is idempotent,
  * so "abort succeeded" is not evidence that anything was actually discarded.
  * Refunding a photographer's quota on that evidence let the same bytes be
  * handed back on every call, which made the 1 TB ceiling decorative.
- *
  * So state lives here instead. OPEN -> COMPLETED and OPEN -> ABORTED are single
  * conditional UPDATEs, and the refund is attached to the transition rather than
  * to the storage call: exactly one abort can ever observe OPEN, so exactly one
- * refund can ever happen. */
+ * refund can ever happen.
+ */
 model MultipartSession {
-  /** The S3/R2 upload id. Unique per upload, so it is the natural key. */
+  /**
+   * The S3/R2 upload id. Unique per upload, so it is the natural key.
+   */
   uploadId String @id
 
   userId  String
   key     String
   eventId String
 
-  /* Which storage profile the upload was opened against ("media" | "document").
-     Needed because the janitor has only this row to work from and must abort
-     against the right bucket. */
+  /**
+   * Which storage profile the upload was opened against ("media" | "document").
+   * Needed because the janitor has only this row to work from and must abort
+   * against the right bucket.
+   */
   purpose String @default("media")
 
   fileSize BigInt
   partSize BigInt
 
-  /** Quota reserved at create time. 0 for employees, who have no ceiling. */
+  /**
+   * Quota reserved at create time. 0 for employees, who have no ceiling.
+   */
   bytesCharged BigInt @default(0)
 
-  /** OPEN | COMPLETED | ABORTED. Only OPEN may be claimed. */
+  /**
+   * Which contributor opened this session, or null for a logged-in uploader.
+   * sign / complete / abort all require the caller to present the SAME value:
+   * the ticket only proves which firm you are, and every contributor of a firm
+   * shares that id, so without this one contributor could finish or abort
+   * another's upload. Deliberately a bare column with no foreign key — it is an
+   * equality check against a value the server already holds, and the session
+   * table is swept by a janitor rather than kept in step with anything.
+   */
+  contributorId String?
+
+  /**
+   * Which upload link this session came through, or null for the firm's main
+   * login and for employees. The pending-bytes ceiling has a per-LINK tier
+   * between the per-contributor one and the firm's: a link is a bearer URL that
+   * may have been forwarded to a whole crew, so one link's crew must not be
+   * able to spend what the firm's other links need. Deriving it by joining
+   * every contributor of the link would be an IN list of up to
+   * MAX_CONTRIBUTORS_PER_LINK inside the charging transaction, on the critical
+   * path of every large file — so it is stamped on the row instead. Bare
+   * column, no foreign key, for the same reasons as contributorId.
+   */
+  linkId String?
+
+  /**
+   * OPEN | COMPLETED | ABORTED. Only OPEN may be claimed.
+   */
   state String @default("OPEN")
 
   createdAt DateTime  @default(now())
   closedAt  DateTime?
 
+  /**
+   * The last time this session was handed part signatures — set at create and
+   * refreshed by every successful `sign`. It is what makes "this upload is
+   * dead" provable rather than guessed: after it plus PART_EXPIRY no URL this
+   * session ever received is still valid, so the upload cannot advance without
+   * asking for more, which would move this column. The firm-wide pending-bytes
+   * cap would otherwise ration everybody for the seven days a closed browser
+   * tab's session sat OPEN.
+   * Null for rows written before the column existed; readers COALESCE to
+   * createdAt, which is what the value would have been.
+   */
+  lastActivityAt DateTime?
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /** The janitor's query: OPEN rows older than a cutoff. */
+  /**
+   * The janitor's query: OPEN rows whose activity stopped before a cutoff.
+   */
+  @@index([state, lastActivityAt])
   @@index([state, createdAt])
+  /**
+   * The per-link pending-bytes ceiling, read inside the charging transaction.
+   */
+  @@index([linkId, state])
+  /**
+   * "Does another upload hold this key?", which /api/uploads/multipart create
+   * asks before it opens anything. COMPLETED rows are never deleted, so without
+   * an index that lookup reads every OPEN and COMPLETED row the firm has ever
+   * written and gets permanently more expensive with every legitimate upload.
+   */
+  @@index([key, state])
+  /**
+   * The pending-bytes tiers, which are all "this firm's OPEN sessions" narrowed
+   * by contributorId or linkId. Nothing indexed userId at all, so each tier
+   * aggregate scanned the table — once inside the charging transaction, and now
+   * once again in the cheap pre-check that sheds a flood before storage is
+   * touched.
+   */
+  @@index([userId, state])
+}
+
+/**
+ * One quota authorisation for one object key, so an authorisation nobody spent
+ * can be found again and given back.
+ * /api/uploads/presign charges a photographer for the single-PUT original and
+ * for each thumb/preview slot it signs, BEFORE any of those objects exist —
+ * that is the only moment a ceiling can be enforced. Nothing used to revisit
+ * those charges: a PUT that never happened, or a tab closed between presign and
+ * registration, debited the firm forever. Open upload links made that reachable
+ * by anyone holding a forwarded URL, so a scripted loop of presign calls could
+ * pin a firm's whole 1 TB with zero bytes stored.
+ * A row is settled exactly once, and the settlement says which way it went:
+ * "registered" — the file was registered, so the bytes are real;
+ * "landed"     — the object is in storage though no row claimed it; the
+ * charge stands, because refunding stored bytes would be a free
+ * upload for anyone who PUTs without registering;
+ * "refunded"   — the object is provably not in storage and the bytes went back.
+ * Employees have no ceiling and get no rows.
+ */
+model UploadCharge {
+  id      String @id @default(uuid())
+  userId  String
+  eventId String
+
+  /**
+   * Which contributor's presign took these bytes, or null for the firm's main
+   * login. Every contributor of a firm presents the FIRM's user id, so userId
+   * alone cannot tell them apart: without this the unsettled-bytes ceiling
+   * could only ever be firm-wide, and one abusing link holder would ration the
+   * firm's own photographers. It is also the only thing that can answer "which
+   * link burned this quota" after the fact, so the right link can be revoked
+   * instead of waiting out the sweep. Deliberately a bare column with no
+   * foreign key, matching MultipartSession.contributorId: it is an equality
+   * filter on a value the server already holds, and a revoked contributor's
+   * charges must stay readable.
+   */
+  contributorId String?
+
+  /**
+   * Which upload link the contributor was holding, or null for the firm's main
+   * login. The unsettled-bytes ceiling has a per-LINK tier between the
+   * per-contributor one and the firm's: one link may have been forwarded to a
+   * whole crew, and that crew must not be able to spend what the firm's other
+   * links need. Stamped on the row rather than joined through
+   * UploadContributor, because the ceiling is read inside the charging
+   * transaction on the critical path of every single file.
+   */
+  linkId String?
+
+  /**
+   * The object key the bytes were authorised for — thumb and preview included.
+   */
+  key   String
+  bytes BigInt
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Null means unsettled. The transition null -> now() is the claim that
+   * authorises a refund, so exactly one writer can ever pay it.
+   */
+  settledAt DateTime?
+
+  /**
+   * "registered" | "landed" | "refunded"; null while unsettled.
+   */
+  outcome String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /**
+   * The per-firm sweep, and the all-links tier of the unsettled-bytes ceiling
+   * (every unsettled row of the firm, filtered on linkId IS NOT NULL).
+   */
+  @@index([userId, settledAt])
+  /**
+   * The two tiers that filter on contributorId: the per-contributor one
+   * (contributorId = X) and the firm's main-login pool (contributorId IS NULL).
+   * Neither is covered by [userId, settledAt], so the main login's own ceiling —
+   * the one that exists precisely so link traffic cannot ration the firm — was
+   * read by scanning every unsettled row the firm's links had written, inside
+   * the PhotographerProfile row lock that serialises the firm's charges.
+   */
+  @@index([userId, contributorId, settledAt])
+  /**
+   * The per-link unsettled-bytes ceiling.
+   */
+  @@index([linkId, settledAt])
+  /**
+   * The all-firms daily sweep: unsettled rows, oldest first.
+   */
+  @@index([settledAt, createdAt])
+  /**
+   * Registration settles by key.
+   */
+  @@index([key])
+}
+
+// ---------------------------------------------------------------------------
+// Open upload links.
+//
+// A photographer firm has ONE login and dozens of people spread over several
+// states; issuing each of them an account is not happening. So the firm mints a
+// Drive-style link instead: no password, no session, just a URL. Everything
+// that arrives through it is still the FIRM's — the firm's event grant, the
+// firm's 1 TB, the firm's folder — which is what keeps the ceiling honest no
+// matter how many links exist.
+// ---------------------------------------------------------------------------
+
+model UploadLink {
+  id String @id @default(uuid())
+
+  /**
+   * Stored raw, not hashed, unlike a password: the firm has to be able to come
+   * back and copy the link again, and a link IS its token — there is nothing
+   * else to present. 24 random bytes is 192 bits, far past guessing.
+   */
+  token String @unique
+
+  /**
+   * The firm's main login. Quota, grant and folder all hang off this user.
+   */
+  photographerId String
+  eventId        String
+
+  label     String?
+  expiresAt DateTime
+
+  /**
+   * Soft revoke, and staff-only — the same rule as a client share link. A firm
+   * that could close its own link could also hide what came in through it.
+   */
+  revokedAt   DateTime?
+  revokedById String?
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Last time the link resolved for anyone. Cheap liveness for the staff view.
+   */
+  lastUsedAt DateTime?
+
+  /**
+   * Cascade on the two FKs that define the link; a link to a deleted event, or
+   * one held by a deleted account, means nothing. revokedBy is audit trail and
+   * survives the employee leaving.
+   */
+  photographer User  @relation("UploadLinkPhotographer", fields: [photographerId], references: [id], onDelete: Cascade)
+  event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  revokedBy    User? @relation("UploadLinkRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  contributors UploadContributor[]
+
+  @@index([photographerId])
+  @@index([eventId])
+}
+
+/// One person who has used an open link. Created the first time they open it,
+/// when they are asked their name and nothing else.
+model UploadContributor {
+  id     String @id @default(uuid())
+  linkId String
+
+  /**
+   * What they typed, trimmed, for display and attribution.
+   */
+  name String
+
+  /**
+   * The folder their uploads land in, inside the firm's folder: sanitised
+   * "<Name> <YYYY-MM-DD HH.mm>" in IST. The timestamp is what makes two people
+   * called Ravi distinguishable; " 2", " 3" is appended if even that collides.
+   */
+  folderName String
+
+  /**
+   * sha256 of a secret the browser keeps. The link itself is a bearer token
+   * anyone can forward, so it cannot identify a person — this is what says
+   * "the same device that created this contributor is back". Hashed because the
+   * row is read far more often than it is created, and a database leak should
+   * not hand out the ability to upload as someone else.
+   */
+  secretHash String
+
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime?
+
+  /**
+   * When an upload email last went out for this person. /api/uploads/notify
+   * accepts link credentials, so the figures in its body are an anonymous
+   * caller's claim and the route itself proves nothing was uploaded; a send is
+   * claimed by moving this forward under a conditional update, and the next one
+   * needs an Upload row newer than it. Mail to the firm is therefore bounded by
+   * what actually arrived, not by how many times the endpoint is poked.
+   */
+  lastNotifiedAt DateTime?
+
+  link    UploadLink    @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  uploads Upload[]
+  folders MediaFolder[]
+
+  @@index([linkId])
+}
+
+/// A folder that exists before anything is in it.
+///
+/// Folders are otherwise purely key prefixes (lib/uploadKey.ts), which means an
+/// empty folder does not exist at all — fine while folders were only ever
+/// derived from a drag-and-dropped directory, useless once someone can press
+/// "New folder" and expect it to still be there. The gallery unions these rows
+/// with the folders implied by the keys.
+model MediaFolder {
+  id      String @id @default(uuid())
+  eventId String
+
+  /**
+   * Full path relative to the event, e.g. "Acme Studios/Ravi 2026-10-01 14.32/Day 1".
+   */
+  path String
+
+  createdById   String?
+  contributorId String?
+  createdAt     DateTime @default(now())
+
+  event       Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdBy   User?              @relation("MediaFolderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  contributor UploadContributor? @relation(fields: [contributorId], references: [id], onDelete: SetNull)
+
+  /**
+   * Creating a folder twice is a no-op, not a second folder.
+   */
+  @@unique([eventId, path])
+  /**
+   * Both are read as filters: one person's folders for the per-contributor
+   * breakdown, the firm's own for the main-account one.
+   */
+  @@index([contributorId])
+  @@index([createdById])
 }
 
 // ---------------------------------------------------------------------------

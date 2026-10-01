@@ -1,0 +1,215 @@
+/* The public upload page.
+ *
+ * Almost everything on screen is already in the design system — .share-page and
+ * .share-masthead from the client gallery, .dropzone and the .uploader-* queue
+ * from the photographer's own upload screen, .quota's vocabulary for an
+ * allowance. What is left is the handful of things only this page has: the
+ * name prompt a first-time visitor meets, the identity strip that says whose
+ * folder the files are going into, and the two-way switch over the gallery.
+ *
+ * Prefixed .up- throughout. Next serves component CSS globally, and
+ * app/tpp-login/upload/upload.css is a different file with the same name.
+ */
+
+/* ── Name prompt ──────────────────────────────────────────────────────── */
+
+/* The whole page for someone who has not said who they are: one question, one
+   field, one button. Narrow on purpose — a single short answer should not be
+   presented across a 1200px span. */
+.up-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 26px 24px 24px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--gray-50);
+}
+
+.up-gate h2 {
+  font-family: var(--font-serif), serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.up-gate .muted { max-width: 46ch; }
+.up-gate .auth-label { margin-top: 6px; }
+
+/* ── The uploader ─────────────────────────────────────────────────────── */
+
+.up-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  margin-bottom: 34px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+}
+
+.up-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.up-identity-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.up-identity-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.up-identity-main strong {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* The folder path is reassurance, not navigation — it may wrap and may clip. */
+.up-identity-main .muted {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/* What is left of the firm's single terabyte. Stated as space remaining rather
+   than space used: the question a photographer with 60 GB in the car is
+   actually asking is whether it will fit. */
+.up-space {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--gray-50);
+}
+
+.up-space-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.up-space-figure {
+  font-family: var(--font-mono), monospace;
+  font-size: 13px;
+  color: var(--ink-body);
+}
+
+.up-space-low { border-color: var(--red); background: var(--red-wash); }
+.up-space-low .up-space-figure { color: var(--red); }
+
+/* Batch progress, under the per-file rows. Only painted while a batch runs. */
+.up-overall {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+
+.up-overall > span {
+  display: block;
+  height: 100%;
+  background: var(--red);
+  transition: width 0.2s linear;
+}
+
+.up-submit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.up-submit .btn-primary { flex: 1 1 200px; justify-content: center; }
+
+/* ── Gallery header ───────────────────────────────────────────────────── */
+
+.up-gallery-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 18px;
+}
+
+.up-gallery-head h2 {
+  font-family: var(--font-serif), serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+/* Two states of one view, so they sit in one control rather than reading as two
+   separate buttons that might both be off. */
+.up-toggle {
+  display: flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.up-toggle button {
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background var(--t), color var(--t);
+}
+
+.up-toggle button + button { border-left: 1px solid var(--rule-strong); }
+.up-toggle button:hover { background: var(--gray-50); }
+
+.up-toggle .up-toggle-on {
+  background: var(--ink);
+  color: #fff;
+}
+
+.up-toggle .up-toggle-on:hover { background: var(--ink); }
+
+/* ── 375px ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+  .up-card { padding: 16px 14px; }
+  .up-gate { padding: 22px 16px 20px; }
+
+  /* The identity strip reads top to bottom rather than squeezing a long name
+     and a long action onto one line. */
+  .up-identity { flex-direction: column; align-items: flex-start; }
+
+  /* Both halves of the switch get the full width; the counts stay readable. */
+  .up-toggle { width: 100%; }
+  .up-toggle button { flex: 1 1 0; text-align: center; }
+
+  .up-submit .btn-primary,
+  .up-submit .btn-outline { flex: 1 1 100%; justify-content: center; }
+}

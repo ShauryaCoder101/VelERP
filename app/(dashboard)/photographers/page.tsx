@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import "./photographers.css";
 
 type GrantedEvent = {
@@ -24,6 +26,10 @@ type Photographer = {
   usedBytes: number;
   quotaBytes: number;
   events: GrantedEvent[];
+  /* How far this firm's open upload links have spread. The API always sends
+     both — zero when it could not count them — so the cell never guesses. */
+  openUploadLinks: number;
+  contributors: number;
 };
 
 type EventOption = {
@@ -88,6 +94,7 @@ const revokedLinkNotice = async (res: Response) => {
 };
 
 export default function PhotographersPage() {
+  const router = useRouter();
   const [photographers, setPhotographers] = useState<Photographer[]>([]);
   const [events, setEvents] = useState<EventOption[]>([]);
   const [showInactive, setShowInactive] = useState(false);
@@ -334,6 +341,7 @@ export default function PhotographersPage() {
                     <th>Photographer</th>
                     <th>Login email</th>
                     <th>Events they can upload to</th>
+                    <th>Open upload links</th>
                     <th>Storage used</th>
                     <th>Created by</th>
                     <th>Status</th>
@@ -344,9 +352,21 @@ export default function PhotographersPage() {
                   {photographers.map((p) => {
                     const pct = p.quotaBytes > 0 ? Math.min(100, (p.usedBytes / p.quotaBytes) * 100) : 0;
                     return (
-                      <tr key={p.id}>
+                      <tr
+                        key={p.id}
+                        className="tpp-row"
+                        onClick={(e) => {
+                          /* The row is a shortcut to the firm's tracking page, but it is
+                             full of its own controls — a chip's ×, a button, the name
+                             link — and those must keep doing what they say. */
+                          if ((e.target as HTMLElement).closest("button, a")) return;
+                          router.push(`/photographers/${p.id}`);
+                        }}
+                      >
                         <td className="tpp-name-cell">
-                          <strong>{p.name}</strong>
+                          <Link className="tpp-name-link" href={`/photographers/${p.id}`}>
+                            <strong>{p.name}</strong>
+                          </Link>
                           <span>{p.uid}</span>
                         </td>
                         <td>{p.email}</td>
@@ -379,6 +399,23 @@ export default function PhotographersPage() {
                               ))
                             )}
                           </div>
+                        </td>
+                        <td>
+                          {/* People stay counted after a link closes — their folders and
+                              files are still there — so a firm with none open but someone
+                              in its folders still reports the person. */}
+                          {p.openUploadLinks === 0 && p.contributors === 0 ? (
+                            <span className="muted">None</span>
+                          ) : (
+                            <div className="tpp-reach">
+                              <strong>{p.openUploadLinks} open</strong>
+                              <span>
+                                {p.contributors === 0
+                                  ? "nobody has used them yet"
+                                  : `${p.contributors} ${p.contributors === 1 ? "person" : "people"} uploading`}
+                              </span>
+                            </div>
+                          )}
                         </td>
                         <td>
                           <div className="tpp-quota">

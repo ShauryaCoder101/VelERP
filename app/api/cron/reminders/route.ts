@@ -1,6 +1,7 @@
 import { prisma } from "../../../../lib/db";
 import { sendReminderEmail, reminderRow } from "../../../../lib/email";
 import { sweepAbandonedMultipart } from "../../../../lib/multipart-janitor";
+import { sweepCharges, type SweepResult } from "../../../../lib/upload-charges";
 
 /* Runs on a Vercel cron. The route is publicly addressable, so it refuses
    anything without the shared secret — otherwise a stranger could make the
@@ -299,7 +300,8 @@ export async function GET(request: Request) {
   /* 5 — housekeeping, not a reminder: multipart uploads whose browser tab was
          simply closed. Left alone they keep their parts in the bucket and, for
          a photographer, keep their bytes counted against the 1 TB ceiling
-         forever. This is the only daily job there is, so it rides along here.
+         forever. This is the only daily cron there is, so housekeeping rides
+         along here.
 
          Sealed in its own try/catch: storage being unreachable must not stop
          the emails above from having gone out, or the ones below — there are
@@ -309,6 +311,49 @@ export async function GET(request: Request) {
     swept = await sweepAbandonedMultipart();
   } catch {
     swept = null;
+  }
+
+  /* 6 — the other half of the same housekeeping: single-PUT originals and
+         thumb/preview slots that were charged at presign and never written.
+         Every firm, a larger budget than the opportunistic sweep presign runs
+         (that one is on an uploader's critical path; this one is not), and its
+         own try/catch for the same reason as above.
+
+         Both budgets are sized against this route's maxDuration of 60 seconds,
+         pessimistically — a storage round trip at 250 ms, which is roughly the
+         worst R2 has shown us for a HEAD or an abort and about five times the
+         typical figure:
+
+           janitor (500 rows, 20 aborts at a time)
+             25 waves x 250 ms                            =  6.3 s
+             5 claim transactions x 3 statements x ~80 ms =  1.2 s
+           charges (1000 rows, 20 HEADs at a time)
+             50 waves x 250 ms                            = 12.5 s
+             <= 20 settle transactions x 3 x ~80 ms       =  4.8 s
+                                                            -------
+                                                            24.8 s
+
+         which leaves ~35 s for the emails above, and at the typical round trip
+         the whole of section 5 and 6 is nearer 5 s.
+
+         Note that the second line of each pair counts STATEMENTS, not
+         transactions. It has to: Prisma's interactive transactions time out
+         after 5000 ms, so what must fit in that budget is the round trips inside
+         one claim, and a batch spanning sixty firms used to issue one refund
+         statement per firm — sixty-one sequential round trips, ~4.9 s, i.e. a
+         P2028 the sweeps swallowed as "refunded: 0" while re-selecting the same
+         oldest rows on every later run. Each claim is now three statements
+         whatever the batch size (claim, lock in order, refund), which is what
+         makes both the per-transaction budget and the figures above hold.
+
+         Running out of budget still only means the rest is swept on the next
+         pass — but the point of the numbers is that a flood's backlog has to
+         drain faster than a flood can create it. */
+  let charges: SweepResult | null = null;
+  try {
+    charges = await sweepCharges({ limit: 1000 });
+  } catch {
+    charges = null;
   }
 
   return Response.json({
@@ -321,6 +366,7 @@ export async function GET(request: Request) {
       eventsMissingMedia: staleEvents.length
     },
     // null means the sweep threw; the counts are absent rather than zero.
-    abandonedUploads: swept
+    abandonedUploads: swept,
+    uploadCharges: charges
   });
 }

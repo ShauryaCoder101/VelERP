@@ -3,6 +3,7 @@ import { prisma } from "../../../lib/db";
 import { getRequestUser } from "../../../lib/rbac-server";
 import { createNotification } from "../../../lib/notifications";
 import { ensureProfile } from "../../../lib/photographers";
+import { firmFolderName } from "../../../lib/upload-links";
 import {
   EMAIL_PATTERN,
   MIN_PASSWORD_LENGTH,
@@ -34,8 +35,57 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "desc" }
   });
 
-  return Response.json({ photographers: rows.map(serializePhotographer) });
+  const reach = await linkReach(rows.map((row) => row.id));
+
+  return Response.json({
+    photographers: rows.map((row) => ({
+      ...serializePhotographer(row),
+      ...(reach.get(row.id) ?? { openUploadLinks: 0, contributors: 0 })
+    }))
+  });
 }
+
+/* How far each firm's links have spread: live links, and people who have used
+   any of them. Two grouped queries for the whole page rather than two per firm.
+
+   Fault-tolerant on purpose. The photographer panel is a core staff screen and
+   migrations on this project are applied by hand, after the code ships — a
+   deploy that lands ahead of the migration must cost these two numbers, not the
+   list itself. */
+const linkReach = async (photographerIds: string[]) => {
+  const reach = new Map<string, { openUploadLinks: number; contributors: number }>();
+  if (photographerIds.length === 0) return reach;
+
+  try {
+    const links = await prisma.uploadLink.findMany({
+      where: { photographerId: { in: photographerIds } },
+      select: { id: true, photographerId: true, revokedAt: true, expiresAt: true }
+    });
+    if (links.length === 0) return reach;
+
+    const crowds = await prisma.uploadContributor.groupBy({
+      by: ["linkId"],
+      where: { linkId: { in: links.map((link) => link.id) } },
+      _count: true
+    });
+    const perLink = new Map(crowds.map((row) => [row.linkId, row._count]));
+
+    const now = Date.now();
+    for (const link of links) {
+      const at = reach.get(link.photographerId) ?? { openUploadLinks: 0, contributors: 0 };
+      // "Open" is live right now: not closed by staff and not yet expired.
+      if (!link.revokedAt && link.expiresAt.getTime() > now) at.openUploadLinks += 1;
+      // Contributors count across ALL of the firm's links, closed ones included:
+      // the people are still in the folders whatever happened to the URL.
+      at.contributors += perLink.get(link.id) ?? 0;
+      reach.set(link.photographerId, at);
+    }
+  } catch {
+    return reach;
+  }
+
+  return reach;
+};
 
 /* uid is "TPP-004", numbered after the highest that exists rather than after the row count,
    so a deleted account can never cause a collision. Two employees creating at the same
@@ -109,6 +159,12 @@ export async function POST(request: Request) {
   }
 
   await ensureProfile(created.id, userId);
+
+  /* Settle the firm's folder now rather than on first upload. It is UNIQUE, so
+     two firms with the same name have to be told apart — and doing that here
+     means the clash is resolved once, at a moment nothing depends on, instead
+     of in the middle of a thousand-file upload. */
+  await firmFolderName(created.id);
 
   await createNotification(
     userId,

@@ -102,3 +102,35 @@
 @media (max-width: 720px) {
   .mg-mine { top: 5px; right: 5px; padding: 1px 5px; font-size: 9px; }
 }
+
+/* Who sent the file. A firm's contributors all upload under the firm's account,
+   so the gallery that shows the whole firm's work needs a name per file — but
+   quietly, under the filename, not as another badge over the photograph.
+
+   The caption is normally one nowrap line with an ellipsis. Only when there is a
+   `by` does it become two, so a client share page (which never sends one) keeps
+   exactly the caption it had. */
+.share-tile-name:has(.mg-by) {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+
+.mg-by,
+.share-tile-name:has(.mg-by) {
+  overflow: hidden;
+}
+
+.mg-by {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The lightbox bar is dark; the filename sits at 0.9 alpha, so this goes under it. */
+.mg-by-lightbox {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+}

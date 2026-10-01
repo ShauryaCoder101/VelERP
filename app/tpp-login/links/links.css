@@ -1,0 +1,120 @@
+/* Upload links — only the parts the design system has no name for yet: a link
+   row that opens into a per-person breakdown, and the breakdown itself. The
+   form above it is .upload-form, .input, .select and .quota, unchanged. */
+
+.link-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.link-fresh {
+  display: flex;
+  flex-direction: column;
+  padding: 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--gray-50);
+}
+
+/* The list is rows of rows: a .share-row that can grow a panel underneath it,
+   so the rule between links has to sit on the block rather than the row. */
+.link-list .link-block { border-bottom: 1px solid var(--rule); }
+.link-list .link-block:last-child { border-bottom: none; }
+.link-list .link-block .share-row { border-bottom: none; }
+
+.link-row-actions { align-items: center; }
+
+.link-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+  background: var(--gray-50);
+  border-top: 1px solid var(--rule);
+}
+
+.link-detail > .empty-state { padding: 18px 0; }
+
+.link-person {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 10px;
+}
+
+.link-person:last-child { border-bottom: none; padding-bottom: 0; }
+
+.link-person-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.link-person-head strong { font-size: 13px; }
+
+.link-person-figures {
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+  color: var(--ink-body);
+  white-space: nowrap;
+}
+
+/* The folder is the thing a photographer on the phone is actually looking for
+   when they ask "where did Ravi's photos go". */
+.link-person-folder {
+  margin-top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-folders {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 1px solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.link-folders li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+}
+
+.link-folder-path {
+  color: var(--ink-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-folder-figures {
+  font-family: var(--font-mono), monospace;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* 375px: the status pill and two buttons cannot share a line with the label, so
+   the actions drop beneath it rather than squeezing the name to nothing. */
+@media (max-width: 460px) {
+  .link-list .share-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .link-row-actions {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .link-person-head { flex-direction: column; gap: 1px; }
+  .link-folders li { flex-direction: column; gap: 0; }
+}

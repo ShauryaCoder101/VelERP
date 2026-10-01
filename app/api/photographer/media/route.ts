@@ -44,11 +44,16 @@ export async function GET(request: Request) {
 
   /* folder null: the grant is over the whole event, not a slice of it — that
      scoping only exists for client links. */
+  /* withUploader: the firm's open links mean most of what is here was sent by
+     one of its photographers in the field, all of it under the firm's single
+     account. Without a name per file the main login sees thirty people's work
+     with its own name on every row. */
   const items = await buildMediaItems({
     eventId: event.id,
     folder: null,
     expiresIn: URL_TTL_SECONDS,
-    viewerId: uploader.id
+    viewerId: uploader.id,
+    withUploader: true
   });
 
   return Response.json({

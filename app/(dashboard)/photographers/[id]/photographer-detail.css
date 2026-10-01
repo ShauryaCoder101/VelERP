@@ -1,0 +1,189 @@
+/* One firm, in full: its links, the people behind them and what the main login
+   sent itself. Only the pieces the shared design system has no class for — the
+   masthead facts, the quota meter at page scale, and the expanded breakdown
+   under a link row. Everything else reuses panel / table-wrap / team-table. */
+
+.pd-back {
+  display: inline-block;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+
+.pd-back:hover { color: var(--red); }
+
+.pd-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+/* Name, UID, folder, status — the four facts every other number on the page is
+   measured against, so they sit together above the rule. */
+.pd-facts {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.pd-fact { display: flex; flex-direction: column; gap: 2px; }
+
+.pd-fact dt {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.pd-fact dd { font-size: 13px; color: var(--ink-body); }
+
+.pd-folder {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  word-break: break-all;
+}
+
+/* ── Quota ────────────────────────────────────────────────── */
+
+.pd-quota { min-width: 230px; flex: 0 1 300px; }
+
+.pd-quota-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--ink-body);
+}
+
+.pd-quota-track {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+
+.pd-quota-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ink-soft);
+}
+
+/* Colour is the only warning the number itself does not give at a glance. */
+.pd-quota-fill.warn { background: #d18b00; }
+.pd-quota-fill.full { background: var(--red); }
+
+/* ── Tables ───────────────────────────────────────────────── */
+
+.pd-link-cell strong { display: block; font-size: 13.5px; }
+.pd-link-cell span { font-size: 11.5px; color: var(--ink-soft); }
+
+.pd-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.pd-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+.pd-actions button {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pd-expand {
+  padding: 2px 7px;
+  margin-right: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.pd-expand:hover { border-color: var(--ink); color: var(--ink); }
+
+/* ── Expanded breakdown ───────────────────────────────────── */
+
+.pd-detail-row > td {
+  background: var(--gray-50);
+  padding: 0;
+}
+
+.pd-people {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.pd-person {
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--paper);
+  padding: 11px 13px;
+}
+
+.pd-person h4 { font-size: 13px; font-weight: 600; }
+
+.pd-person-folder {
+  display: block;
+  margin-top: 1px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--ink-faint);
+  word-break: break-all;
+}
+
+.pd-person-stats {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-body);
+}
+
+.pd-subfolders {
+  margin-top: 8px;
+  border-top: 1px solid var(--rule);
+  padding-top: 7px;
+}
+
+.pd-subfolder {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  padding: 2px 0;
+}
+
+/* Direct children only: the path cell now nests a tag span, which must not
+   inherit the counts cell's nowrap. */
+.pd-subfolder > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pd-subfolder > span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Quiet by design: it explains a folder, it is not a warning about one. */
+.pd-outside {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: normal;
+}
+
+.pd-none { padding: 20px 18px; font-size: 12.5px; color: var(--ink-faint); }
+
+@media (max-width: 720px) {
+  .pd-head { gap: 14px; }
+  .pd-quota { flex: 1 1 100%; min-width: 0; }
+  .pd-facts { gap: 14px 20px; }
+  .pd-people { padding: 12px; }
+  .pd-actions { justify-content: flex-start; }
+}

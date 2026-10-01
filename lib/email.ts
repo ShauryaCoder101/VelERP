@@ -22,6 +22,24 @@ function getTransporter() {
   return transporter;
 }
 
+/* Everything interpolated into these templates is DATA, not markup.
+ *
+ * It stopped being a theoretical concern when open upload links landed: a
+ * contributor's display name is typed by whoever holds a forwarded link, with
+ * no account behind it, and it is interpolated into the body of a mail sent
+ * from Velocity's own SMTP to the firm's registered address. Unescaped, "<a
+ * href=...>Open invoice</a>" in a name field is a live link in that mail.
+ *
+ * Applied at the call sites that take user-supplied strings rather than inside
+ * frame(), whose `content` is markup these helpers built on purpose. */
+export const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 /* Reminder mail shares one plain, document-ish shell — these land in inboxes
    next to real correspondence, so they read as a note rather than a campaign. */
 const frame = (heading: string, intro: string, content: string, footer?: string) => `
@@ -154,7 +172,13 @@ export async function sendUploadEmail(opts: {
       ? `Upload finished with ${failed} failure${failed !== 1 ? "s" : ""} — ${opts.eventName}`
       : `Upload finished — ${opts.eventName}`;
 
-  const rows = [reminderRow(opts.eventName, `${files} · ${size}`)];
+  /* Both are free text from outside: the event name is typed by staff, and the
+     uploader's name may be a link contributor's, which anybody holding the link
+     can choose. The subject lines above are plain text and need no escaping. */
+  const who = escapeHtml(opts.name);
+  const where = escapeHtml(opts.eventName);
+
+  const rows = [reminderRow(where, `${files} · ${size}`)];
   if (!starting) {
     rows.push(
       reminderRow(
@@ -174,8 +198,8 @@ export async function sendUploadEmail(opts: {
       html: shell(
         heading,
         starting
-          ? `${opts.name}, your upload is under way. You will get another note when it finishes — you can close the tab once every file shows a progress bar.`
-          : `${opts.name}, your upload has finished.`,
+          ? `${who}, your upload is under way. You will get another note when it finishes — you can close the tab once every file shows a progress bar.`
+          : `${who}, your upload has finished.`,
         rows,
         appUrl ? `Event media: ${appUrl}/events` : undefined
       )

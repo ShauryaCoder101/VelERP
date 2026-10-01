@@ -3,7 +3,12 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "./db";
 import { resolveForUrl } from "./storage";
 import { isArchived } from "./archive";
-import { folderFromFileUrl, displayNameFromFileUrl, derivativeUrlFor } from "./uploadKey";
+import {
+  folderFromFileUrl,
+  displayNameFromFileUrl,
+  derivativeUrlFor,
+  splitFolderSegments
+} from "./uploadKey";
 
 /* Building a browsable list of an event's media: names, folders, and signed
  * thumbnail / preview / original / download URLs.
@@ -35,13 +40,28 @@ export type MediaItem = {
   download: string | null;
   /** Only set when a viewerId was supplied: did this viewer upload the file. */
   mine?: boolean;
+  /* Only set when withUploader: who sent it. A firm's people all upload as the
+     firm, so without this a contributor browsing the firm folder sees thirty
+     people's work with one name on all of it. */
+  by?: string;
 };
+
+/** Staff uploads are attributed to the company, not to the individual employee. */
+const STAFF_LABEL = "Velocity team";
 
 /** A share grant may be scoped to one folder; `null` means the whole event. */
 const inScope = (fileUrl: string, eventId: string, folder: string | null) => {
   if (!folder) return true;
-  const at = folderFromFileUrl(fileUrl, eventId);
-  return at === folder || at.startsWith(`${folder}/`);
+  /* Both sides normalised, not compared raw. The scope can now be a STORED
+     name — a firm's folder, read from PhotographerProfile — while the path on
+     the left is derived from a key, which was sanitised on the way in. A stored
+     name that is not a fixed point of that sanitising (" .Acme" stored, keys
+     built under "_Acme") would match nothing at all, and the failure is silent:
+     uploads keep working and the gallery is simply empty. */
+  const root = splitFolderSegments(folder).join("/");
+  if (!root) return false;
+  const at = splitFolderSegments(folderFromFileUrl(fileUrl, eventId)).join("/");
+  return at === root || at.startsWith(`${root}/`);
 };
 
 /* A cross-origin <a download> is ignored by browsers, so the disposition has
@@ -73,12 +93,31 @@ export async function buildMediaItems(opts: {
   expiresIn: number;
   /** When given, each item reports whether this user uploaded it. */
   viewerId?: string;
+  /* The viewer is someone holding an open upload link rather than an account.
+     Takes precedence over viewerId, which for them is the firm's id and would
+     mark the whole firm's output as theirs. */
+  viewerContributorId?: string;
+  /** Label each item with who sent it. */
+  withUploader?: boolean;
 }): Promise<MediaItem[]> {
-  const { eventId, folder, expiresIn, viewerId } = opts;
+  const { eventId, folder, expiresIn, viewerId, viewerContributorId, withUploader } = opts;
 
   const uploads = await prisma.upload.findMany({
     where: { eventId },
-    select: { id: true, fileUrl: true, fileType: true, sizeBytes: true, createdAt: true, uploadedBy: true },
+    select: {
+      id: true,
+      fileUrl: true,
+      fileType: true,
+      sizeBytes: true,
+      createdAt: true,
+      uploadedBy: true,
+      contributorId: true,
+      /* Two extra relation queries for the whole list, not per row — Prisma
+         resolves these as separate IN queries. Selected unconditionally to keep
+         one query shape; `by` is only emitted when the caller asked for it. */
+      contributor: { select: { name: true } },
+      user: { select: { name: true, role: true } }
+    },
     orderBy: { createdAt: "asc" }
   });
 
@@ -115,8 +154,25 @@ export async function buildMediaItems(opts: {
         preview,
         original,
         download,
-        // Absent, not false, for a caller that did not identify a viewer.
-        ...(viewerId ? { mine: u.uploadedBy === viewerId } : {})
+        /* Absent, not false, for a caller that did not identify a viewer.
+           For a link user "mine" is their contributor row; for anyone else it is
+           their account AND no contributor — otherwise the firm's main login
+           would claim every file its link users ever sent, since they all
+           upload as the firm. */
+        ...(viewerContributorId
+          ? { mine: u.contributorId === viewerContributorId }
+          : viewerId
+            ? { mine: u.uploadedBy === viewerId && !u.contributorId }
+            : {}),
+        ...(withUploader
+          ? {
+              by: u.contributor
+                ? u.contributor.name
+                : u.user.role === "PHOTOGRAPHER"
+                  ? u.user.name
+                  : STAFF_LABEL
+            }
+          : {})
       };
     })
   );

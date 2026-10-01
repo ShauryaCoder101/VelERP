@@ -22,6 +22,37 @@ const MAX_ATTEMPTS = 4;
 
 export type ProgressFn = (pct: number) => void;
 
+/**
+ * An error that remembers the status the server answered with.
+ *
+ * A batch has to tell "skip this file and carry on" from "stop, every
+ * remaining file will fail the same way", and the thing that distinguishes
+ * them is the status: every ceiling in the upload path answers 429 or 403, and
+ * everything that is about THIS file answers something else. The message alone
+ * cannot carry that — matching server prose from the client is a rule that
+ * breaks silently the next time someone rewords a string, and there are now
+ * several ceilings with several wordings (per contributor, per link, per firm).
+ *
+ * The message is still the server's own, because it is the one that tells the
+ * uploader what to do next.
+ */
+export class UploadRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "UploadRequestError";
+    this.status = status;
+  }
+}
+
+/** The status an error carries, if it carries one. Duck-typed rather than
+ *  instanceof, so an error that crossed a module boundary still answers. */
+export const statusOfError = (error: unknown): number | null => {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : null;
+};
+
 const contentTypeOf = (file: File) => file.type || "application/octet-stream";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -33,44 +64,72 @@ export const partSizeFor = (fileSize: number) => {
   return size;
 };
 
-type XhrResult = { ok: boolean; status: number; etag: string | null };
+type XhrResult = { ok: boolean; status: number; etag: string | null; aborted: boolean };
+
+/** Thrown when the caller's AbortSignal fires. Callers treat it as "not a failure". */
+export const CANCELLED = "Upload cancelled";
+
+const cancelled = (signal?: AbortSignal) => {
+  if (signal?.aborted) throw new Error(CANCELLED);
+};
 
 const putBlob = (
   url: string,
   blob: Blob,
   contentType: string | null,
-  onLoaded: (bytes: number) => void
+  onLoaded: (bytes: number) => void,
+  signal?: AbortSignal
 ): Promise<XhrResult> =>
   new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
+    /* The signal has to reach the XHR itself: a multi-GB part already in flight
+       would otherwise keep streaming for minutes after the user pressed Stop. */
+    const onAbort = () => xhr.abort();
+    const done = (result: XhrResult) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
     xhr.open("PUT", url);
     if (contentType) xhr.setRequestHeader("Content-Type", contentType);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onLoaded(e.loaded);
     };
     xhr.onload = () =>
-      resolve({
+      done({
         ok: xhr.status >= 200 && xhr.status < 300,
         status: xhr.status,
-        etag: xhr.getResponseHeader("ETag")
+        etag: xhr.getResponseHeader("ETag"),
+        aborted: false
       });
-    xhr.onerror = () => resolve({ ok: false, status: 0, etag: null });
-    xhr.ontimeout = () => resolve({ ok: false, status: 0, etag: null });
+    xhr.onerror = () => done({ ok: false, status: 0, etag: null, aborted: false });
+    xhr.ontimeout = () => done({ ok: false, status: 0, etag: null, aborted: false });
+    xhr.onabort = () => done({ ok: false, status: 0, etag: null, aborted: true });
+    if (signal?.aborted) {
+      done({ ok: false, status: 0, etag: null, aborted: true });
+      return;
+    }
+    signal?.addEventListener("abort", onAbort);
     xhr.send(blob);
   });
 
-const simpleUpload = async (url: string, file: File, onProgress: ProgressFn) => {
+const simpleUpload = async (url: string, file: File, onProgress: ProgressFn, signal?: AbortSignal) => {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const res = await putBlob(url, file, contentTypeOf(file), (loaded) =>
-      onProgress(Math.round((loaded / file.size) * 100))
+    const res = await putBlob(
+      url,
+      file,
+      contentTypeOf(file),
+      (loaded) => onProgress(Math.round((loaded / file.size) * 100)),
+      signal
     );
     if (res.ok) return;
+    if (res.aborted) throw new Error(CANCELLED);
     // A rejected signature or a refused request will not improve on retry.
     if (res.status >= 400 && res.status !== 408 && res.status !== 429) {
       throw new Error(`Storage refused the file (${res.status})`);
     }
     if (attempt === MAX_ATTEMPTS) throw new Error("Network error reaching storage");
     await sleep(500 * 2 ** (attempt - 1));
+    cancelled(signal);
   }
 };
 
@@ -84,24 +143,37 @@ type MultipartOpts = {
      without it the multipart route mints a second key and the derivatives are
      orphaned. Optional only so callers that never call presign still work. */
   reservation?: string;
+  /* Credentials for a caller with no session — the open-link token and the
+     contributor's device credential. Sent on every call this module makes, so
+     a contributor's multipart upload is authorised the same way their presign
+     was. Empty for a signed-in photographer or employee. */
+  headers?: Record<string, string>;
+  /** Stops the upload mid-flight; the multipart session is aborted on the way out. */
+  signal?: AbortSignal;
 };
 
-const api = async (payload: Record<string, unknown>) => {
+const api = async (payload: Record<string, unknown>, extra?: Record<string, string>) => {
   const res = await fetch("/api/uploads/multipart", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...extra },
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
     /* The server's message is the useful one — "Upload limit reached" or "You
-       don't have access to this event" tells the uploader what to do next. */
+       don't have access to this event" tells the uploader what to do next. The
+       status rides along so the batch can tell a ceiling (stop) from a
+       per-file refusal (skip and carry on). */
     const said = await res.json().catch(() => null);
-    throw new Error(said?.error || "Upload could not be prepared");
+    throw new UploadRequestError(said?.error || "Upload could not be prepared", res.status);
   }
   return res.json();
 };
 
 const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: ProgressFn) => {
+  const auth = opts.headers;
+  const signal = opts.signal;
+  cancelled(signal);
+
   /* fileSize is declared up front because the server signs a Content-Length
      into every part URL. The part layout therefore has to come back from the
      server rather than being recomputed here — a disagreement of one byte would
@@ -120,7 +192,7 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
     fileType: contentTypeOf(file),
     fileSize: file.size,
     reservation: opts.reservation
-  });
+  }, auth);
 
   const numbers = Array.from({ length: count }, (_, i) => i + 1);
   const urls: Record<number, string> = {};
@@ -147,10 +219,18 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         // Content-Type is deliberately omitted: it is set once on the object at
         // create time, and signing it per part invites signature mismatches.
-        const res = await putBlob(urls[partNumber], blob, null, (bytes) => {
-          loaded.set(partNumber, bytes);
-          report();
-        });
+        const res = await putBlob(
+          urls[partNumber],
+          blob,
+          null,
+          (bytes) => {
+            loaded.set(partNumber, bytes);
+            report();
+          },
+          signal
+        );
+
+        if (res.aborted) throw new Error(CANCELLED);
 
         if (res.ok && res.etag) {
           etags.set(partNumber, res.etag);
@@ -169,12 +249,13 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
 
         // An expired signature is worth re-minting once before giving up.
         if (res.status === 403) {
-          const { urls: fresh } = await api({ action: "sign", token, partNumbers: [partNumber] });
+          const { urls: fresh } = await api({ action: "sign", token, partNumbers: [partNumber] }, auth);
           Object.assign(urls, fresh);
         }
 
         if (attempt === MAX_ATTEMPTS) throw new Error(lastError);
         await sleep(500 * 2 ** (attempt - 1));
+        cancelled(signal);
       }
     }
   };
@@ -188,22 +269,28 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
     // Signatures are minted in batches; one request per part would be absurd.
     for (let i = 0; i < numbers.length; i += 500) {
       const batch = numbers.slice(i, i + 500);
-      const { urls: got } = await api({ action: "sign", token, partNumbers: batch });
+      const { urls: got } = await api({ action: "sign", token, partNumbers: batch }, auth);
       Object.assign(urls, got);
     }
 
     await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, count) }, worker));
-    await api({
-      action: "complete",
-      token,
-      parts: [...etags.entries()].map(([partNumber, etag]) => ({ partNumber, etag }))
-    });
+    await api(
+      {
+        action: "complete",
+        token,
+        parts: [...etags.entries()].map(([partNumber, etag]) => ({ partNumber, etag }))
+      },
+      auth
+    );
     onProgress(100);
     return fileUrl;
   } catch (error) {
     /* Leave no half-uploaded parts behind to be billed for — and, for a
-       photographer, this is what gives the reserved bytes back. */
-    await api({ action: "abort", token }).catch(() => {});
+       photographer, this is what gives the reserved bytes back.
+
+       Deliberately not given the signal: a cancelled upload is exactly when the
+       abort matters most, and passing it would cancel the refund too. */
+    await api({ action: "abort", token }, auth).catch(() => {});
     throw error;
   }
 };
@@ -230,7 +317,7 @@ export const uploadFile = async (
   onProgress: ProgressFn
 ): Promise<string> => {
   if (file.size <= MULTIPART_THRESHOLD && opts.presignedUrl && opts.fileUrl) {
-    await simpleUpload(opts.presignedUrl, file, onProgress);
+    await simpleUpload(opts.presignedUrl, file, onProgress, opts.signal);
     return opts.fileUrl;
   }
   return multipartUpload(file, opts, onProgress);

@@ -1,0 +1,140 @@
+/* Styles owned by FolderPicker.tsx.
+   Buttons, inputs, labels and the error strip come from globals.css (.btn-*,
+   .input, .auth-label, .cell-meta, .auth-error); what is here is only the tree
+   itself, which nothing else in the ERP draws. */
+
+.fp {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  overflow: hidden;
+}
+
+/* Capped and scrolled: a firm with thirty contributors would otherwise push the
+   Upload button off the bottom of a phone screen. */
+.fp-tree {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.fp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+  border-radius: var(--r-sm);
+}
+
+.fp-row-on { background: var(--red-wash); }
+
+.fp-twisty {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--ink-faint);
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: var(--r-sm);
+}
+
+.fp-twisty:hover { color: var(--ink); }
+.fp-twisty-blank { pointer-events: none; }
+
+.fp-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-body);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--t);
+}
+
+.fp-pick:hover:not(:disabled) { color: var(--ink); }
+.fp-pick:disabled { opacity: 0.45; cursor: not-allowed; }
+.fp-pick[aria-pressed="true"] { color: var(--red-deep); font-weight: 500; }
+.fp-pick-root { font-weight: 500; }
+
+/* Focus must stay visible: this tree is navigated by Tab, and the rows have no
+   border of their own to carry it. */
+.fp-twisty:focus-visible,
+.fp-pick:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.fp-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--rule);
+  background: var(--gray-50);
+}
+
+.fp-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-body);
+}
+
+.fp-target-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-soft);
+}
+
+/* Wraps rather than scrolls: a deep path on a 375px screen has to stay readable,
+   and the destination is the one thing here that must never be half-hidden. */
+.fp-trail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fp-sep { color: var(--ink-faint); padding: 0 5px; }
+
+.fp-new { display: flex; flex-direction: column; gap: 6px; }
+
+.fp-new-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fp-new-row .input { flex: 1 1 160px; min-width: 0; }
+
+.fp-new-btn { align-self: flex-start; }
+
+@media (max-width: 420px) {
+  .fp-tree { max-height: 200px; }
+  /* Create and Cancel share the row below a full-width name field. */
+  .fp-new-row .input { flex: 1 1 100%; }
+  .fp-new-row .btn-primary,
+  .fp-new-row .btn-outline { flex: 1 1 0; }
+}

@@ -40,6 +40,11 @@ export type GalleryItem = {
   archived: boolean;
   /** Only present when the caller identified a viewer (the photographer page). */
   mine?: boolean;
+  /* Only present when the caller asked for attribution: who sent this file. A
+     firm's contributors all upload under the firm's account, so without it a
+     gallery of thirty people's work carries one name. Absent on the client
+     share page, which renders exactly as it did before this existed. */
+  by?: string;
 };
 
 export type MediaGalleryProps = {
@@ -305,7 +310,12 @@ export default function MediaGallery({
               is that a photographer sees the rest of the team's work too. */}
           {item.mine && <span className="mg-mine">Uploaded by you</span>}
         </div>
-        <figcaption className="share-tile-name">{item.name}</figcaption>
+        <figcaption className="share-tile-name">
+          {item.name}
+          {/* Quiet second line, not a badge: attribution is context for the
+              occasional "who shot this", never the point of the tile. */}
+          {item.by && <span className="mg-by">{item.by}</span>}
+        </figcaption>
       </figure>
     );
   };
@@ -501,7 +511,10 @@ export default function MediaGallery({
               )}
             </div>
             <div className="share-lightbox-bar">
-              <span className="share-lightbox-name">{active.name}</span>
+              <span className="share-lightbox-name">
+                {active.name}
+                {active.by && <span className="mg-by-lightbox">{active.by}</span>}
+              </span>
               <span className="share-lightbox-actions">
                 {active.download ? (
                   <a className="btn-primary" href={active.download}>Download original</a>

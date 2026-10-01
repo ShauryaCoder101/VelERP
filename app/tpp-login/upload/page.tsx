@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { uploadFile, MULTIPART_THRESHOLD } from "../../../lib/upload-client";
-import { makeDerivatives } from "../../../lib/derivatives";
+import { MULTIPART_THRESHOLD } from "../../../lib/upload-client";
+import { isQuotaError, notifyUploadBatch, QUOTA_MESSAGE, uploadMediaFile } from "../../../lib/media-upload";
 import { markAsDirectoryInput, readDataTransfer, readFileInput, type DroppedFile } from "../../../lib/file-drop";
+import FolderPicker from "../../components/FolderPicker";
 import "./upload.css";
 
 type EventOption = {
@@ -16,6 +17,12 @@ type EventOption = {
 };
 
 type Quota = { usedBytes: number; quotaBytes: number };
+
+/* GET /api/media-folders. uploadRoot and viewRoot are the same string for the
+   firm's main login — the firm folder is both what it may fill and what it may
+   see — but the endpoint reports them separately because a contributor's are
+   not, so only uploadRoot is read here. */
+type FolderPayload = { uploadRoot: string | null; viewRoot: string | null; folders: string[] };
 
 type ItemStatus = "queued" | "uploading" | "done" | "error";
 
@@ -47,15 +54,6 @@ const formatAllowance = (bytes: number) => {
   return `${Math.round(bytes / 1_000_000)} MB`;
 };
 
-/* The browser must send exactly the Content-Type the URL was signed for,
-   or storage rejects the PUT. Some cameras hand us files with an empty type,
-   so both sides agree on this fallback. */
-const contentTypeOf = (file: File) => file.type || "application/octet-stream";
-
-const QUOTA_MESSAGE = "Upload limit reached";
-
-const isQuotaError = (message: string) => message.startsWith(QUOTA_MESSAGE);
-
 export default function PhotographerUploadPage() {
   const [events, setEvents] = useState<EventOption[]>([]);
   const [quota, setQuota] = useState<Quota | null>(null);
@@ -66,6 +64,13 @@ export default function PhotographerUploadPage() {
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState("");
   const [blocked, setBlocked] = useState("");
+
+  /* Where in the firm's folder this batch lands. `target` is relative to
+     uploadRoot, "" meaning the firm folder itself — the loose-files case. */
+  const [uploadRoot, setUploadRoot] = useState("");
+  const [folders, setFolders] = useState<string[]>([]);
+  const [target, setTarget] = useState("");
+  const [foldersError, setFoldersError] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -92,6 +97,48 @@ export default function PhotographerUploadPage() {
       .catch((err) => setNotice(err instanceof Error ? err.message : "Could not load your events"))
       .finally(() => setLoaded(true));
   }, []);
+
+  /* The folder tree belongs to the event, so it is reloaded whenever the event
+     changes — and the chosen target is dropped with it, because a folder in one
+     event means nothing in another. */
+  const loadFolders = useCallback(async (): Promise<void> => {
+    if (!eventId) {
+      setFolders([]);
+      setUploadRoot("");
+      return;
+    }
+    const res = await fetch(`/api/media-folders?eventId=${encodeURIComponent(eventId)}`);
+    if (!res.ok) {
+      const said = await res.json().catch(() => null);
+      throw new Error(said?.error || "Your folders could not be loaded");
+    }
+    const data: FolderPayload = await res.json();
+    setFolders(data.folders);
+    setUploadRoot(data.uploadRoot ?? "");
+  }, [eventId]);
+
+  useEffect(() => {
+    setTarget("");
+    setFoldersError("");
+    loadFolders().catch((err) =>
+      setFoldersError(err instanceof Error ? err.message : "Your folders could not be loaded")
+    );
+  }, [loadFolders]);
+
+  /* Creating a folder is the one write this page makes outside an upload. The
+     picker wants back the new path relative to uploadRoot, and the row it
+     created has to appear in the tree, so the list is refreshed alongside. */
+  const createFolder = async (parentRelative: string, name: string): Promise<string> => {
+    const res = await fetch("/api/media-folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId, parent: parentRelative, name })
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error || "The folder could not be created.");
+    await loadFolders().catch(() => {});
+    return body.relative as string;
+  };
 
   const totalBytes = useMemo(() => items.reduce((s, i) => s + i.file.size, 0), [items]);
   const pending = items.filter((i) => i.status === "queued" || i.status === "error");
@@ -132,101 +179,20 @@ export default function PhotographerUploadPage() {
    * Resolves with the number of derivatives (thumb/preview) that did not land —
    * never fatal, but the caller reports it rather than letting blank tiles be
    * the first anyone hears of it.
+   *
+   * The pipeline itself lives in lib/media-upload.ts, shared with the public
+   * open-link page. The path sent is relative to this firm's own folder: the
+   * server prepends the root. A dropped directory structure nests UNDER the
+   * chosen target rather than replacing it, so "Day 1/Stage" dropped into
+   * "Gujarat" lands in "Gujarat/Day 1/Stage".
    */
   const uploadOne = async (item: Item) => {
-    /* Shrink first, in the browser: the presign call has to declare the exact
-       size of every slot it asks for, including the derivatives, because those
-       URLs carry a signed Content-Length. */
-    const small = await makeDerivatives(item.file);
-    const wanted = (["thumb", "preview"] as const).filter((kind) => small[kind]);
-
-    const presignRes = await fetch("/api/uploads/presign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        eventId,
-        fileName: item.file.name,
-        fileType: contentTypeOf(item.file),
-        relativePath: item.path,
-        purpose: "media",
-        fileSize: item.file.size,
-        derivatives: wanted,
-        derivativeSizes: Object.fromEntries(wanted.map((kind) => [kind, small[kind]!.size]))
-      })
+    const { derivativeFailures } = await uploadMediaFile({
+      file: item.file,
+      eventId,
+      relativePath: [target, item.path].filter(Boolean).join("/"),
+      onProgress: (pct) => patch(item.id, { pct })
     });
-    if (!presignRes.ok) {
-      const said = await presignRes.json().catch(() => null);
-      throw new Error(said?.error || "Could not get an upload link");
-    }
-    const {
-      uploadUrl,
-      fileUrl: simpleUrl,
-      reservation,
-      derivatives
-    }: {
-      uploadUrl?: string;
-      fileUrl?: string;
-      reservation?: string;
-      derivatives?: Record<string, { uploadUrl: string; fileUrl: string }>;
-    } = await presignRes.json();
-
-    /* The derivatives go up FIRST, before the original.
-       Their PUT URLs were just signed with a one-hour life, and a multi-GB
-       video uploaded in parts routinely takes longer than that — sending them
-       afterwards, as this used to, meant storage answered 403 and the gallery
-       tile stayed blank forever. They are a few hundred KB, so going first
-       costs nothing.
-       Still best effort: a missing thumbnail only means the gallery falls back
-       to the original and must not fail the file. But it is counted and logged
-       rather than swallowed, so a systematic failure is visible. */
-    let derivativeFailures = 0;
-    await Promise.all(
-      wanted.map(async (kind) => {
-        const slot = derivatives?.[kind];
-        if (!slot) return;
-        try {
-          const res = await fetch(slot.uploadUrl, {
-            method: "PUT",
-            headers: { "Content-Type": "image/jpeg" },
-            body: small[kind]!
-          });
-          if (!res.ok) throw new Error(`storage returned ${res.status}`);
-        } catch (err) {
-          derivativeFailures += 1;
-          console.warn(`Could not upload the ${kind} for ${item.file.name}`, err);
-        }
-      })
-    );
-
-    /* Anything large comes back without a single-PUT slot and goes up in parts,
-       so a dropped connection costs one chunk rather than the whole file.
-
-       The reservation goes with it: presign already signed the thumb and
-       preview slots against one key, and the multipart route has to write the
-       original to that same key or the derivatives below belong to nothing. */
-    const fileUrl = await uploadFile(
-      item.file,
-      {
-        eventId,
-        relativePath: item.path,
-        purpose: "media",
-        presignedUrl: uploadUrl,
-        fileUrl: simpleUrl,
-        reservation
-      },
-      (pct) => patch(item.id, { pct })
-    );
-
-    const recordRes = await fetch("/api/uploads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ eventId, fileUrl, fileType: contentTypeOf(item.file) })
-    });
-    if (!recordRes.ok) {
-      const said = await recordRes.json().catch(() => null);
-      throw new Error(said?.error || "Uploaded, but could not be recorded");
-    }
-
     return derivativeFailures;
   };
 
@@ -248,15 +214,16 @@ export default function PhotographerUploadPage() {
     const batchBytes = queue.reduce((sum, i) => sum + i.file.size, 0);
     let failures = 0;
     let stopped = 0;
+    /* The server's own words for why the batch stopped. There is more than one
+       reason now — the 1 TB allowance, or one of the in-progress ceilings —
+       and only the server knows which, so the message is carried rather than
+       reconstructed. */
+    let stoppedBecause = "";
     let thumbFailures = 0;
 
     /* Fire-and-forget: the upload must not wait on an email server. */
     const notify = (phase: "start" | "end", failed = 0) =>
-      fetch("/api/uploads/notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, phase, fileCount: queue.length, totalBytes: batchBytes, failed })
-      }).catch(() => {});
+      notifyUploadBatch({ eventId, phase, fileCount: queue.length, totalBytes: batchBytes, failed });
 
     void notify("start");
 
@@ -272,10 +239,12 @@ export default function PhotographerUploadPage() {
         patch(item.id, { status: "error", error: message });
         failures += 1;
 
-        /* Out of allowance is not a per-file problem: every remaining file
-           would fail the same way, so the batch stops and says so once. */
-        if (isQuotaError(message)) {
+        /* A full allowance, or a ceiling on uploads already in progress, is not
+           a per-file problem: every remaining file would fail the same way, so
+           the batch stops and says so once. */
+        if (isQuotaError(err)) {
           stopped = queue.length - index - 1;
+          stoppedBecause = message;
           for (const rest of queue.slice(index + 1)) patch(rest.id, { status: "queued", pct: 0 });
           break;
         }
@@ -287,12 +256,20 @@ export default function PhotographerUploadPage() {
 
     // The allowance moved, whether or not the files landed.
     await loadAccess().catch(() => {});
+    // Dropped directories make folders too; the tree should show them.
+    await loadFolders().catch(() => {});
 
     if (stopped > 0) {
+      /* "The allowance is full" is only one of the reasons the batch stops now,
+         and it is the one that needs a human: the in-progress ceilings clear
+         themselves in minutes, so telling someone to ring Velocity about one
+         would be wrong. The server distinguishes them, so its message is shown
+         verbatim and only the queue count is added. */
+      const waiting = `${stopped} file${stopped !== 1 ? "s are" : " is"} still queued.`;
       setBlocked(
-        `Your 1 TB storage allowance is full, so the upload stopped with ${stopped} file${
-          stopped !== 1 ? "s" : ""
-        } still queued. Ask your Velocity contact to free up room before trying again.`
+        stoppedBecause.startsWith(QUOTA_MESSAGE)
+          ? `Your 1 TB storage allowance is full, so the upload stopped — ${waiting} Ask your Velocity contact to free up room before trying again.`
+          : `${stoppedBecause} The upload stopped, so ${waiting}`
       );
       return;
     }
@@ -366,6 +343,26 @@ export default function PhotographerUploadPage() {
             </select>
             {selectedEvent && <span className="cell-meta">Filing under {selectedEvent.companyName}</span>}
 
+            {/* Everything this firm sends lands inside its own folder; this
+                chooses where inside it. The root is the loose-files case, and
+                is deliberately the default — picking a folder is a decision,
+                not a toll. */}
+            {eventId && uploadRoot && (
+              <>
+                <span className="auth-label">Folder</span>
+                <FolderPicker
+                  folders={folders}
+                  uploadRoot={uploadRoot}
+                  value={target}
+                  onChange={setTarget}
+                  onCreate={createFolder}
+                  rootLabel={uploadRoot}
+                  disabled={busy}
+                />
+              </>
+            )}
+            {foldersError && <div className="auth-error" role="alert">{foldersError}</div>}
+
             {/* Uploading is only half the job: the same events can be browsed —
                 every file on them, not just this photographer's — and shared
                 with a client from there. Listed per event rather than hung off
@@ -376,6 +373,21 @@ export default function PhotographerUploadPage() {
             {loaded && events.length > 0 && (
             <div className="share-list">
               <div className="share-list-head">Your events</div>
+              {/* The other half of this account: handing a password-less upload
+                  URL to a photographer in the field who has no login at all.
+                  Kept at the top of the event list because it is reached far
+                  more often than any one event. */}
+              <div className="share-row">
+                <div className="share-row-main">
+                  <strong>Upload links</strong>
+                  <span className="muted">
+                    Let your team upload to an event without a login, into your folder.
+                  </span>
+                </div>
+                <div className="share-row-actions">
+                  <Link className="edit-btn" href="/tpp-login/links">Open</Link>
+                </div>
+              </div>
               {events.map((option) => (
                 <div key={option.id} className="share-row">
                   <div className="share-row-main">

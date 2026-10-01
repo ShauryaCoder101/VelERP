@@ -267,6 +267,9 @@ export default function PhotographerMediaPage() {
             <div className="tpp-head-actions">
               <button className="btn-primary" type="button" onClick={openPanel}>Client links</button>
               <Link className="btn-outline" href="/tpp-login/upload">Upload more</Link>
+              {/* Distinct from "Client links" above: those let a client view,
+                  these let a photographer with no login upload. */}
+              <Link className="btn-outline" href="/tpp-login/links">Upload links</Link>
             </div>
           </div>
         }
@@ -274,7 +277,8 @@ export default function PhotographerMediaPage() {
           <div className="share-notice">
             <span>Everything shot at this event, by whoever uploaded it.</span>
             <span className="share-notice-sub">
-              {items.length} file{items.length !== 1 ? "s" : ""} · view, download and share. Removing anything is
+              {items.length} file{items.length !== 1 ? "s" : ""} · view, download and share. Each file carries the
+              name of the person who sent it, including everyone uploading through your links. Removing anything is
               done by Velocity staff.
             </span>
           </div>
