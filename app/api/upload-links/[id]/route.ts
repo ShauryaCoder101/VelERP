@@ -19,17 +19,18 @@ const forbidden = () => new Response("Forbidden", { status: 403 });
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
 
-  const link = await prisma.uploadLink.findUnique({ where: { id }, select: LINK_SELECT });
-  if (!link) return Response.json({ error: "That link no longer exists" }, { status: 404 });
-
-  /* Employee first: getRequestUser returns the anonymous shape for a
+  /* Who is asking comes before whether the link exists, so a signed-out caller
+     learns nothing about which ids are real.
+     Employee first: getRequestUser returns the anonymous shape for a
      photographer session, so an empty id means "not an employee" rather than
      "not signed in", and the firm is asked for through its own door below. */
   const employee = await getRequestUser(request);
-  if (!employee.id) {
-    const uploader = await getUploader(request);
-    if (!uploader?.isPhotographer || uploader.id !== link.photographerId) return forbidden();
-  }
+  const firm = employee.id ? null : await getUploader(request);
+  if (!employee.id && !firm?.isPhotographer) return forbidden();
+
+  const link = await prisma.uploadLink.findUnique({ where: { id }, select: LINK_SELECT });
+  if (!link) return Response.json({ error: "That link no longer exists" }, { status: 404 });
+  if (firm && firm.id !== link.photographerId) return forbidden();
 
   const folder = await firmFolderName(link.photographerId);
   if (folder === null) return Response.json({ error: "That link no longer exists" }, { status: 404 });
