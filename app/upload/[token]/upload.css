@@ -196,6 +196,34 @@
 
 .up-toggle .up-toggle-on:hover { background: var(--ink); }
 
+/* ── Already uploaded ─────────────────────────────────────────────────── */
+
+/* The count of files that will be skipped, with the way to override it. Shown
+   above the queue and before anything is sent, so it is read as information
+   rather than discovered as an absence. Deliberately not .auth-error: nothing
+   has gone wrong, and a red box would say otherwise. */
+.up-skip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
+  background: var(--gray-50);
+  font-size: 12.5px;
+  color: var(--ink-body);
+}
+
+.up-skip strong { color: var(--ink); }
+
+/* A skipped row is still listed — which files they are matters — but reads as
+   out of the way rather than as a problem. */
+.uploader-skipped .uploader-name,
+.uploader-skipped .uploader-size { color: var(--ink-faint); }
+.uploader-skipped .uploader-state { color: var(--ink-soft); }
+
 /* ── 375px ────────────────────────────────────────────────────────────── */
 
 @media (max-width: 520px) {

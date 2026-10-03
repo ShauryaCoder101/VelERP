@@ -21,6 +21,7 @@ import { MULTIPART_THRESHOLD, partSizeFor } from "../../../../lib/upload-client"
 import { allocateQuota, claimSweepSlot, hasEventAccess, releaseQuota } from "../../../../lib/photographers";
 import { PART_EXPIRY_SECONDS, sweepFirmMultipart } from "../../../../lib/multipart-janitor";
 import { uploadHmacKey, verifyReservation } from "../../../../lib/uploadReservation";
+import { logUploadFailure } from "../../../../lib/upload-health";
 
 /* Multipart upload for anything large enough that losing it midway hurts.
  *
@@ -604,6 +605,20 @@ export async function POST(request: Request) {
           .send(new AbortMultipartUploadCommand({ Bucket: profile.bucket, Key: key, UploadId: uploadId }))
           .catch(() => {});
         if (error instanceof CreateRefused) return Response.json(error.body, { status: error.status });
+        /* A CreateRefused is a decision with a message the client can read; this
+           is the other kind — the transaction failed for a reason nobody chose,
+           which is the shape 1 October had. Logged before the rethrow, because
+           what Next renders from an unhandled throw says nothing about which
+           upload it was. */
+        logUploadFailure({
+          route: "uploads/multipart",
+          action: "create",
+          userId: uploader.id,
+          eventId,
+          key,
+          uploadId,
+          error
+        });
         throw error;
       }
 
@@ -713,32 +728,51 @@ export async function POST(request: Request) {
          A loser is left OPEN deliberately. Its parts are real and are being
          billed; leaving it claimable is what lets the client abort and get its
          bytes refunded through the one OPEN -> ABORTED transition. */
-      const claim = await prisma.$transaction(async (tx) => {
-        /* $executeRaw, never $queryRaw: pg_advisory_xact_lock returns `void`,
-           which Prisma cannot deserialize, so $queryRaw threw here on every
-           complete and every multipart upload (>16 MB) was aborted. */
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.key}::text))`;
+      /* Wrapped purely so this throw reaches the logs. It is the exact path that
+         broke on 1 October — the lock statement threw inside the transaction,
+         before any storage call — and what Vercel showed was a Prisma
+         deserialization message with no upload, key or account attached, so even
+         reading the logs did not point here. Rethrown unchanged. */
+      let claim: "taken" | "settled" | "claimed";
+      try {
+        claim = await prisma.$transaction(async (tx) => {
+          /* $executeRaw, never $queryRaw: pg_advisory_xact_lock returns `void`,
+             which Prisma cannot deserialize, so $queryRaw threw here on every
+             complete and every multipart upload (>16 MB) was aborted. */
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.key}::text))`;
 
-        /* Excludes this session's own row, which is what keeps the "completed
-           but the response was lost" recovery below working. That case has one
-           session for the key: the claim moved it to COMPLETED, the SDK's
-           internal retry of CompleteMultipartUpload got NoSuchUpload, and the
-           catch branch HEADs the object and answers success. Nothing here sees
-           a rival, because the only COMPLETED row for the key is this one.
-           The same is true of the reopen path — it puts THIS row back to OPEN,
-           so a genuine retry still finds no rival and can claim again. */
-        const rival = await tx.multipartSession.findFirst({
-          where: { key: session.key, state: "COMPLETED", uploadId: { not: session.uploadId } },
-          select: { uploadId: true }
-        });
-        if (rival) return "taken" as const;
+          /* Excludes this session's own row, which is what keeps the "completed
+             but the response was lost" recovery below working. That case has one
+             session for the key: the claim moved it to COMPLETED, the SDK's
+             internal retry of CompleteMultipartUpload got NoSuchUpload, and the
+             catch branch HEADs the object and answers success. Nothing here sees
+             a rival, because the only COMPLETED row for the key is this one.
+             The same is true of the reopen path — it puts THIS row back to OPEN,
+             so a genuine retry still finds no rival and can claim again. */
+          const rival = await tx.multipartSession.findFirst({
+            where: { key: session.key, state: "COMPLETED", uploadId: { not: session.uploadId } },
+            select: { uploadId: true }
+          });
+          if (rival) return "taken" as const;
 
-        const won = await tx.multipartSession.updateMany({
-          where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
-          data: { state: "COMPLETED", closedAt: new Date() }
+          const won = await tx.multipartSession.updateMany({
+            where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
+            data: { state: "COMPLETED", closedAt: new Date() }
+          });
+          return won.count === 1 ? ("claimed" as const) : ("settled" as const);
         });
-        return won.count === 1 ? ("claimed" as const) : ("settled" as const);
-      });
+      } catch (error) {
+        logUploadFailure({
+          route: "uploads/multipart",
+          action: "complete:claim",
+          userId: uploader.id,
+          eventId: session.eventId,
+          key: session.key,
+          uploadId: session.uploadId,
+          error
+        });
+        throw error;
+      }
 
       if (claim === "taken") {
         return Response.json({ error: "This file has already been uploaded" }, { status: 409 });
@@ -821,6 +855,21 @@ export async function POST(request: Request) {
             .catch(() => {});
         }
 
+        /* The upload really did not land. Logged here rather than at the top of
+           this catch, because the branch above is a SUCCESS that happens to have
+           gone through an error — logging before the HEAD answered would file a
+           completed upload as a failure. `certain` says which of the two
+           remaining cases this is: the object is provably absent, or storage
+           could not be asked. */
+        logUploadFailure({
+          route: "uploads/multipart",
+          action: certain ? "complete" : "complete:unverified",
+          userId: uploader.id,
+          eventId: session.eventId,
+          key: session.key,
+          uploadId: session.uploadId,
+          error
+        });
         throw error;
       }
 
@@ -845,17 +894,35 @@ export async function POST(request: Request) {
          row ABORTED with the bytes still charged — and nothing revisits a
          settled row, so those bytes were gone for good. Committing both together
          means the refund exists if and only if the transition does. */
-      const claimed = await prisma.$transaction(async (tx) => {
-        const won = await tx.multipartSession.updateMany({
-          where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
-          data: { state: "ABORTED", closedAt: new Date() }
-        });
-        if (won.count !== 1) return false;
+      /* Wrapped for the logs only, and rethrown. A claim that throws leaves the
+         row OPEN with the bytes still charged until a sweep reaches it, which is
+         exactly the kind of thing that should be visible rather than inferred
+         from a quota that will not go down. */
+      let claimed: boolean;
+      try {
+        claimed = await prisma.$transaction(async (tx) => {
+          const won = await tx.multipartSession.updateMany({
+            where: { uploadId: session.uploadId, userId: uploader.id, state: "OPEN" },
+            data: { state: "ABORTED", closedAt: new Date() }
+          });
+          if (won.count !== 1) return false;
 
-        const refund = Number(session.bytesCharged);
-        if (refund > 0) await releaseQuota(uploader.id, refund, tx);
-        return true;
-      });
+          const refund = Number(session.bytesCharged);
+          if (refund > 0) await releaseQuota(uploader.id, refund, tx);
+          return true;
+        });
+      } catch (error) {
+        logUploadFailure({
+          route: "uploads/multipart",
+          action: "abort:claim",
+          userId: uploader.id,
+          eventId: session.eventId,
+          key: session.key,
+          uploadId: session.uploadId,
+          error
+        });
+        throw error;
+      }
 
       if (claimed) {
         /* Outside the transaction, and best effort: it is a network call that
@@ -870,7 +937,20 @@ export async function POST(request: Request) {
               UploadId: session.uploadId
             })
           )
-          .catch(() => {});
+          /* Still swallowed — the row is settled and this answer authorises
+             nothing — but no longer silent: a bucket that refuses aborts is
+             leaking paid-for parts, and this was the only place that knew. */
+          .catch((error) =>
+            logUploadFailure({
+              route: "uploads/multipart",
+              action: "abort:discard-parts",
+              userId: uploader.id,
+              eventId: session.eventId,
+              key: session.key,
+              uploadId: session.uploadId,
+              error
+            })
+          );
       }
 
       // A second abort, or an abort after complete, is a no-op rather than an

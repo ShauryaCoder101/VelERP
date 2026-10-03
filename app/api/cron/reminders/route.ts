@@ -1,7 +1,8 @@
 import { prisma } from "../../../../lib/db";
-import { sendReminderEmail, reminderRow } from "../../../../lib/email";
+import { sendReminderEmail, reminderRow, sendUploadAlertEmail } from "../../../../lib/email";
 import { sweepAbandonedMultipart } from "../../../../lib/multipart-janitor";
 import { sweepCharges, type SweepResult } from "../../../../lib/upload-charges";
+import { computeUploadHealth, unhealthyAccounts, healthHint } from "../../../../lib/upload-health";
 
 /* Runs on a Vercel cron. The route is publicly addressable, so it refuses
    anything without the shared secret — otherwise a stranger could make the
@@ -15,6 +16,19 @@ export const maxDuration = 60;
 const DAY_MS = 86_400_000;
 const fmt = (d: Date) =>
   d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
+/* Vercel runs this in UTC, so the timezone has to be named explicitly rather
+   than left to the runtime's locale — otherwise "last failure 04:12" in an
+   Indian inbox is five and a half hours off and reads as the middle of the
+   night. */
+const istTime = (d: Date) =>
+  d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  });
 
 const authorised = (request: Request) => {
   const secret = process.env.CRON_SECRET;
@@ -297,7 +311,129 @@ export async function GET(request: Request) {
     if (ok) sent.push(`media:${email}`);
   }
 
-  /* 5 — housekeeping, not a reminder: multipart uploads whose browser tab was
+  /* 5 — uploads that are failing. Not a reminder about something somebody
+         forgot: an alarm about something the ERP broke.
+
+         On 1 October one bug made every file over 16MB fail at the final step.
+         A firm's browser aborted ~290 videos four or five times over while 396
+         smaller files from the same folder saved perfectly, and nothing here
+         said a word — the file count went up, the quota bar went up, and that is
+         exactly what a good day looks like. Velocity heard about it two days
+         later, from the firm, in a voice note.
+
+         Deliberately placed BEFORE the two sweeps below. Those can spend 25 of
+         this route's 60 seconds; the alert is the one thing in this file that is
+         urgent, so it must not be what gets cut off when storage is slow. It
+         costs three aggregate queries and at most a handful of emails.
+
+         Its own try/catch, like everything else here: a failure to warn about
+         broken uploads must not also break the reminders. */
+  type AlertSummary = {
+    accountsChecked: number;
+    accountsAffected: number;
+    recipients: number;
+  };
+  let uploadAlert: AlertSummary | null = null;
+  try {
+    const health = await computeUploadHealth({ since: new Date(now.getTime() - DAY_MS) });
+    const affected = unhealthyAccounts(health);
+
+    let recipients = 0;
+    if (affected.length > 0) {
+      /* Whoever can actually act: chase the firm, or get the bug looked at.
+         UPLOAD_ALERT_EMAILS exists so an on-call address can be added without a
+         role change — comma separated, trimmed, blanks dropped. */
+      const leads = await prisma.user.findMany({
+        where: { status: "ACTIVE", role: { in: ["MANAGING_DIRECTOR", "HEAD_OF_OPERATIONS"] } },
+        select: { name: true, email: true }
+      });
+      const extra = (process.env.UPLOAD_ALERT_EMAILS ?? "")
+        .split(",")
+        .map((address) => address.trim())
+        .filter(Boolean)
+        .map((email) => ({ name: "Team", email }));
+
+      // One mail per address: a lead who is also listed in the env var must not
+      // get two copies of the same alarm.
+      const byAddress = new Map<string, { name: string; email: string }>();
+      for (const person of [...leads, ...extra]) {
+        if (!byAddress.has(person.email)) byAddress.set(person.email, person);
+      }
+
+      /* An alarm correctly raised and sent to nobody is the 1 October shape all
+         over again — the only trace would be `recipients: 0` in this route's JSON
+         response, which nobody reads on a day nothing looks wrong. Deactivate the
+         Head of Operations, change the MD's role, never set UPLOAD_ALERT_EMAILS,
+         and that is exactly what happens, so it is said out loud in the logs. */
+      if (byAddress.size === 0) {
+        console.error(
+          `[upload-alert] NO RECIPIENTS: ${affected.length} account(s) failing uploads and nobody to tell — ` +
+            "no ACTIVE MANAGING_DIRECTOR or HEAD_OF_OPERATIONS, and UPLOAD_ALERT_EMAILS is unset"
+        );
+      }
+
+      const rows = affected.map((account) => {
+        const gb = account.failedBytes / 1024 ** 3;
+        const parts = [
+          account.uid ? `UID ${account.uid}` : "employee",
+          account.largeFailed > 0
+            ? `${account.largeFailed} of ${account.largeAttempted} large file${
+                account.largeAttempted !== 1 ? "s" : ""
+              } failed${gb >= 0.01 ? ` (${gb.toFixed(gb >= 10 ? 0 : 1)} GB)` : ""}`
+            : null,
+          account.smallMissing > 0
+            ? `${account.smallMissing} small file${
+                account.smallMissing !== 1 ? "s" : ""
+              } never arrived`
+            : null,
+          `${account.filesRegistered} file${account.filesRegistered !== 1 ? "s" : ""} did save`,
+          // IST, because that is the clock everyone reading this is on, and a
+          // UTC timestamp in an Indian inbox is a five-and-a-half-hour mistake
+          // waiting to happen.
+          account.lastFailureAt ? `last failure ${istTime(account.lastFailureAt)} IST` : null
+        ].filter(Boolean);
+
+        return {
+          who: account.name,
+          detail: parts.join(" · "),
+          hint: healthHint(account)
+        };
+      });
+
+      for (const person of byAddress.values()) {
+        const ok = await sendUploadAlertEmail({
+          to: person.email,
+          recipientName: person.name,
+          windowLabel: "the last 24 hours",
+          rows,
+          footer: appUrl
+            ? `Per-firm figures: ${appUrl}/photographers`
+            : "Open the photographer panel in the ERP for the per-firm figures."
+        });
+        if (ok) {
+          sent.push(`uploads:${person.email}`);
+          recipients += 1;
+        }
+      }
+    }
+
+    uploadAlert = {
+      accountsChecked: health.accounts.length,
+      accountsAffected: affected.length,
+      recipients
+    };
+  } catch (error: any) {
+    // Logged, not swallowed silently: a health check that stopped working is the
+    // same failure mode as having no health check at all.
+    console.error(
+      `[cron/reminders] upload health check failed: ${(error as Error)?.name ?? "Error"}: ${
+        error?.message ?? error
+      }`
+    );
+    uploadAlert = null;
+  }
+
+  /* 6 — housekeeping, not a reminder: multipart uploads whose browser tab was
          simply closed. Left alone they keep their parts in the bucket and, for
          a photographer, keep their bytes counted against the 1 TB ceiling
          forever. This is the only daily cron there is, so housekeeping rides
@@ -313,7 +449,7 @@ export async function GET(request: Request) {
     swept = null;
   }
 
-  /* 6 — the other half of the same housekeeping: single-PUT originals and
+  /* 7 — the other half of the same housekeeping: single-PUT originals and
          thumb/preview slots that were charged at presign and never written.
          Every firm, a larger budget than the opportunistic sweep presign runs
          (that one is on an uploader's critical path; this one is not), and its
@@ -333,8 +469,11 @@ export async function GET(request: Request) {
                                                             -------
                                                             24.8 s
 
-         which leaves ~35 s for the emails above, and at the typical round trip
-         the whole of section 5 and 6 is nearer 5 s.
+         which leaves ~35 s for the emails and the health check above, and at the
+         typical round trip the whole of section 6 and 7 is nearer 5 s. The health
+         check in section 5 adds three aggregate queries and one small SELECT, so
+         well under a second; it runs first precisely so these two cannot eat its
+         budget.
 
          Note that the second line of each pair counts STATEMENTS, not
          transactions. It has to: Prisma's interactive transactions time out
@@ -367,6 +506,9 @@ export async function GET(request: Request) {
     },
     // null means the sweep threw; the counts are absent rather than zero.
     abandonedUploads: swept,
-    uploadCharges: charges
+    uploadCharges: charges,
+    // Same convention: null means the health check itself threw, which is a
+    // different thing from "nothing is failing".
+    uploadHealth: uploadAlert
   });
 }

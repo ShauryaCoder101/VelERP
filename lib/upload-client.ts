@@ -39,9 +39,40 @@ export type ProgressFn = (pct: number) => void;
 export class UploadRequestError extends Error {
   readonly status: number;
 
+  /* Says the status came from VELOCITY's api rather than from storage, which is
+     what tells a ceiling (stop the whole batch) from a throttle (try again).
+     Both answer 429 — retryableStorageStatus treats storage's as "ask again in
+     a moment", and lib/media-upload's isQuotaError reads the server's as "the
+     1 TB is full, or too much is already in flight" — so the number alone is
+     ambiguous and reading the wrong one stops a healthy batch. Read through
+     errorFlag, never instanceof: these errors are re-wrapped on the way up. */
+  readonly fromApi = true;
+
   constructor(message: string, status: number) {
     super(message);
     this.name = "UploadRequestError";
+    this.status = status;
+  }
+}
+
+/**
+ * A storage PUT that did not succeed.
+ *
+ * Carries the status for the same reason UploadRequestError does — so a caller
+ * can tell "the connection dropped, try again" from "storage refused this" —
+ * and exists because the alternative was for the retry layer above to read the
+ * number back out of the prose ("part 3 failed (503)"). Matching a message to
+ * decide whether to retry is a rule that breaks silently when someone rewords
+ * the string, and it would break in the direction of hammering storage.
+ *
+ * Status 0 means no answer arrived at all: a dropped connection or a timeout.
+ */
+export class StorageError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "StorageError";
     this.status = status;
   }
 }
@@ -53,8 +84,19 @@ export const statusOfError = (error: unknown): number | null => {
   return typeof status === "number" ? status : null;
 };
 
+/**
+ * Reads a boolean marker an error class set on itself ("fromApi",
+ * "bytesLanded").
+ *
+ * Duck-typed for the same reason statusOfError is, and more so: a failure is
+ * wrapped in UploadFailure before any page sees it, and that wrapper copies the
+ * markers across rather than preserving the class. An instanceof test would
+ * therefore answer "no" for exactly the errors the pages classify.
+ */
+export const errorFlag = (error: unknown, name: "fromApi" | "bytesLanded"): boolean =>
+  (error as Record<string, unknown> | null | undefined)?.[name] === true;
+
 const contentTypeOf = (file: File) => file.type || "application/octet-stream";
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /* Parts must be uniform (bar the last) and there can be at most 10,000, so a
    very large file needs a bigger part rather than more of them. */
@@ -72,6 +114,59 @@ export const CANCELLED = "Upload cancelled";
 const cancelled = (signal?: AbortSignal) => {
   if (signal?.aborted) throw new Error(CANCELLED);
 };
+
+/**
+ * Was this a cancel rather than a failure?
+ *
+ * Two shapes reach callers: the Error(CANCELLED) this module throws, and the
+ * DOMException named "AbortError" that fetch throws when the same signal fires
+ * mid-request. Both mean the uploader pressed Stop, and neither may be counted
+ * as a failure or retried. Duck-typed so an error that crossed a module
+ * boundary still answers.
+ */
+export const isCancellation = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const { name, message } = error as { name?: unknown; message?: unknown };
+  return name === "AbortError" || message === CANCELLED;
+};
+
+/**
+ * Backoff that notices a cancel.
+ *
+ * `await sleep(8000)` followed by a check means Stop appears to do nothing for
+ * eight seconds, which on a page whose button says "Stopping after the current
+ * file…" reads as a hang. This rejects the moment the signal fires.
+ */
+export const waitUnlessCancelled = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error(CANCELLED));
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new Error(CANCELLED));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort);
+  });
+
+/**
+ * Is another go at this PUT worth making?
+ *
+ * 0 is a dropped connection or a timeout — the hotel-wifi case this whole
+ * module exists for. 408 and 429 are storage asking for another try later, and
+ * every 5xx is storage's own problem rather than this file's. Everything else
+ * is a refusal of THIS request (a bad signature, a rejected length, a
+ * mismatched Content-Type) and will be refused identically forever.
+ */
+const retryableStorageStatus = (status: number) =>
+  status === 0 || status === 408 || status === 429 || status >= 500;
 
 const putBlob = (
   url: string,
@@ -124,12 +219,19 @@ const simpleUpload = async (url: string, file: File, onProgress: ProgressFn, sig
     if (res.ok) return;
     if (res.aborted) throw new Error(CANCELLED);
     // A rejected signature or a refused request will not improve on retry.
-    if (res.status >= 400 && res.status !== 408 && res.status !== 429) {
-      throw new Error(`Storage refused the file (${res.status})`);
+    if (!retryableStorageStatus(res.status)) {
+      throw new StorageError(`Storage refused the file (${res.status})`, res.status);
     }
-    if (attempt === MAX_ATTEMPTS) throw new Error("Network error reaching storage");
-    await sleep(500 * 2 ** (attempt - 1));
-    cancelled(signal);
+    if (attempt === MAX_ATTEMPTS) {
+      /* The status rides out with it so the layer above can say "the network
+         dropped" rather than "something went wrong", and can decide whether
+         starting this file over is worth doing. */
+      throw new StorageError(
+        res.status ? `Storage could not take the file (${res.status})` : "Network error reaching storage",
+        res.status
+      );
+    }
+    await waitUnlessCancelled(500 * 2 ** (attempt - 1), signal);
   }
 };
 
@@ -153,11 +255,22 @@ type MultipartOpts = {
 };
 
 const api = async (payload: Record<string, unknown>, extra?: Record<string, string>) => {
-  const res = await fetch("/api/uploads/multipart", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...extra },
-    body: JSON.stringify(payload)
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/uploads/multipart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...extra },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    /* fetch rejects — with a bare TypeError, whose message differs per browser —
+       when the request never reached the server at all. Turned into a status of
+       0 here so the retry layer classifies it by number like everything else
+       instead of matching browser prose. A cancel is passed through untouched:
+       it is not a failure and must never be retried. */
+    if (isCancellation(error)) throw error;
+    throw new UploadRequestError("Lost connection while preparing the upload", 0);
+  }
   if (!res.ok) {
     /* The server's message is the useful one — "Upload limit reached" or "You
        don't have access to this event" tells the uploader what to do next. The
@@ -247,15 +360,22 @@ const multipartUpload = async (file: File, opts: MultipartOpts, onProgress: Prog
         loaded.set(partNumber, 0);
         report();
 
-        // An expired signature is worth re-minting once before giving up.
+        // An expired signature is worth re-minting before giving up — which is
+        // why a 403 is retried here although it is not otherwise transient.
         if (res.status === 403) {
           const { urls: fresh } = await api({ action: "sign", token, partNumbers: [partNumber] }, auth);
           Object.assign(urls, fresh);
+        } else if (!retryableStorageStatus(res.status)) {
+          /* A part storage has actually refused — a length it will not take, a
+             Content-Type mismatch — is refused the same way four times. The
+             loop used to spend three backoffs discovering that for every part
+             of the file; the whole attempt is bounded either way, but this ends
+             it at the first part rather than the last. */
+          throw new StorageError(lastError, res.status);
         }
 
-        if (attempt === MAX_ATTEMPTS) throw new Error(lastError);
-        await sleep(500 * 2 ** (attempt - 1));
-        cancelled(signal);
+        if (attempt === MAX_ATTEMPTS) throw new StorageError(lastError, res.status);
+        await waitUnlessCancelled(500 * 2 ** (attempt - 1), signal);
       }
     }
   };

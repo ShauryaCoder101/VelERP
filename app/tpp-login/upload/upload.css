@@ -74,6 +74,32 @@
   margin-top: 4px;
 }
 
+/* The count of files that will be skipped because we already hold them, with the
+   way to override it. Above the queue and before anything is sent, so it reads
+   as information rather than being discovered as an absence. Deliberately not
+   .auth-error: nothing has gone wrong, and a red box would say otherwise. */
+.upload-skip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r);
+  background: var(--gray-50);
+  font-size: 12.5px;
+  color: var(--ink-body);
+}
+
+.upload-skip strong { color: var(--ink); }
+
+/* A skipped row is still listed — which files they are matters — but reads as
+   out of the way rather than as a problem. */
+.uploader-skipped .uploader-name,
+.uploader-skipped .uploader-size { color: var(--ink-faint); }
+.uploader-skipped .uploader-state { color: var(--ink-soft); }
+
 /* A folder path is context, not the headline — it sits under the file name. */
 .uploader-folder {
   display: block;

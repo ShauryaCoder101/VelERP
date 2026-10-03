@@ -17,7 +17,16 @@ export const sanitizeSegment = (value: string) =>
     .replace(/[^a-zA-Z0-9._ -]/g, "_")
     .replace(/^\.+/, "_")
     .trim()
-    .slice(0, 120) || "_";
+    .slice(0, 120)
+    /* Trimmed AGAIN after the cut, which is what makes this function its own
+       fixed point. Slicing a 140-character segment can land on a space, and a
+       segment ending in one is a segment a SECOND pass through here would trim —
+       which is exactly what the server does to a stored path
+       (normalizeFolderPath / pathUnderRoot re-sanitise). The upload page compares
+       its own one-pass answer against the two-pass one /api/uploads/existing
+       reports, so without this the two strings differ by a trailing space and
+       every file in such a folder is silently re-uploaded. */
+    .trim() || "_";
 
 export const splitFolderSegments = (relativePath: string) =>
   (relativePath || "")

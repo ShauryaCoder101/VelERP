@@ -5,7 +5,28 @@ import { useParams } from "next/navigation";
 import FolderPicker from "../../components/FolderPicker";
 import MediaGallery, { type GalleryItem } from "../../components/MediaGallery";
 import { MULTIPART_THRESHOLD } from "../../../lib/upload-client";
-import { isQuotaError, notifyUploadBatch, QUOTA_MESSAGE, uploadMediaFile } from "../../../lib/media-upload";
+import {
+  failureReason,
+  fetchExistingUploads,
+  isOfflineError,
+  isQuotaError,
+  landedBytesUsable,
+  MAX_CONSECUTIVE_OFFLINE,
+  MAX_FILE_ATTEMPTS,
+  notifyUploadBatch,
+  OFFLINE_LANDED_MESSAGE,
+  OFFLINE_MESSAGE,
+  pendingRegistration,
+  plannedFolder,
+  QUOTA_MESSAGE,
+  registerUpload,
+  skipDecisions,
+  uploadMediaFileWithRetry,
+  type ExistingIndex,
+  type PendingRegistration,
+  type QueuedFile,
+  type SkipReason
+} from "../../../lib/media-upload";
 import { markAsDirectoryInput, readDataTransfer, readFileInput, type DroppedFile } from "../../../lib/file-drop";
 import "./upload.css";
 
@@ -68,6 +89,18 @@ type Item = {
   status: ItemStatus;
   pct: number;
   error?: string;
+  /* Set when this file is not going to be uploaded: we already hold it, or it
+     is the same file twice in one batch. Recomputed rather than stored on the
+     server's word, so unticking "upload them again" puts them straight back. */
+  skip?: SkipReason;
+  /** Which go at this file is in flight; only interesting past the first. */
+  attempt?: number;
+  /* Set when the bytes reached storage and only the Upload row is missing: the
+     one failure where trying again must NOT send the file. Carried from the
+     RegistrationFailure so Retry re-runs the registration POST and nothing else
+     — on a hotel connection, re-sending a 40 GB video the firm is already being
+     charged for is the worst thing this page could do. Cleared once it saves. */
+  landed?: PendingRegistration;
 };
 
 /* Storage is sold and billed in decimal units and the firm's allowance is a
@@ -103,6 +136,11 @@ const REFRESH_AFTER_MS = 50 * 60_000;
    list shows what is moving and what broke rather than four thousand rows the
    browser then has to re-paint on every percent. */
 const MAX_ROWS = 120;
+
+/* How long the "what have I already uploaded" answer is trusted for. Long
+   enough that queueing a folder and pressing Upload is one lookup; short enough
+   that a page left open since this morning re-asks before it starts skipping. */
+const EXISTING_TTL_MS = 60_000;
 
 const storageKey = (linkId: string) => `velocity-upload-contributor:${linkId}`;
 
@@ -169,6 +207,27 @@ export default function PublicUploadPage() {
   const [notice, setNotice] = useState("");
   const [blocked, setBlocked] = useState("");
   const abort = useRef<AbortController | null>(null);
+
+  /* What this person has already uploaded to this event, so a folder re-dropped
+     after a failed run does not go up twice out of the firm's 1 TB.
+
+     Held in a ref with its own revision counter rather than in state read by a
+     memo: the skip decision is a pass over the whole queue, and a memo over
+     `items` would redo it on every progress tick — four thousand rows times
+     fifty ticks a file is work nobody asked for. It is recomputed only when the
+     queue's MEMBERSHIP changes (queueRev), the target folder moves, the lookup
+     comes back, or the checkbox is touched. */
+  const existingRef = useRef<{ index: ExistingIndex; at: number } | null>(null);
+  const existingFetch = useRef<Promise<ExistingIndex | null> | null>(null);
+  /* Bumped whenever the answer would be about a different person. A lookup in
+     flight when the device's identity is forgotten must not come back and have
+     its list believed for whoever types their name next. */
+  const existingScope = useRef(0);
+  const [existingRev, setExistingRev] = useState(0);
+  const [existingError, setExistingError] = useState("");
+  const [reupload, setReupload] = useState(false);
+  const [queueRev, setQueueRev] = useState(0);
+  const itemsRef = useRef<Item[]>(items);
 
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [galleryError, setGalleryError] = useState("");
@@ -371,9 +430,125 @@ export default function PublicUploadPage() {
     setNotice("");
     setBlocked("");
     setGalleryError("");
+    /* The already-uploaded list belongs to the person who has just been
+       forgotten, so it must not be used to judge the next one's queue. */
+    existingRef.current = null;
+    existingFetch.current = null;
+    existingScope.current += 1;
+    setExistingError("");
+    setReupload(false);
+    setQueueRev((n) => n + 1);
   };
 
   /* ── The queue ────────────────────────────────────────────────────────── */
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  /**
+   * Fetch (or reuse) the list of files this person has already uploaded.
+   *
+   * Never throws and never blocks an upload: a lookup that fails leaves the
+   * index null, which means "skip nothing", and says so on screen. Being unable
+   * to check whether a file is a duplicate is not a reason to refuse to upload
+   * it.
+   */
+  const ensureExisting = useCallback(
+    async (force: boolean): Promise<ExistingIndex | null> => {
+      if (!auth) return null;
+      const held = existingRef.current;
+      if (!force && held && Date.now() - held.at < EXISTING_TTL_MS) return held.index;
+      /* Dropping a folder arms the lookup and pressing Upload asks for it again.
+         On a slow connection both would be in the air at once, and this query
+         reads every row the person has on the event — one is enough. */
+      if (!force && existingFetch.current) return existingFetch.current;
+
+      const scope = existingScope.current;
+      const run = (async () => {
+        try {
+          const index = await fetchExistingUploads(`${base}/existing`, auth);
+          // An answer about the previous event, or the previous person, is dropped.
+          if (existingScope.current !== scope) return null;
+          existingRef.current = { index, at: Date.now() };
+          setExistingError("");
+          setExistingRev((n) => n + 1);
+          return index;
+        } catch {
+          if (existingScope.current !== scope) return null;
+          existingRef.current = null;
+          setExistingError(
+            "We couldn't check what you've already uploaded, so nothing will be skipped. Everything in the queue will be sent."
+          );
+          setExistingRev((n) => n + 1);
+          return null;
+        }
+      })();
+
+      existingFetch.current = run;
+      try {
+        return await run;
+      } finally {
+        if (existingFetch.current === run) existingFetch.current = null;
+      }
+    },
+    [auth, base]
+  );
+
+  /** The queue as the skip check sees it: the folder each file would land in,
+   *  sanitised exactly as its key will be, plus the name and size to match on.
+   *
+   *  Only the files that would actually be sent. A file already uploaded in this
+   *  session is "done", and judging it against the list it is now ON would mark
+   *  it as a duplicate of itself. */
+  const candidates = (queue: Item[]): QueuedFile[] =>
+    queue
+      .filter((i) => i.status === "queued" || i.status === "error")
+      .map((i) => ({
+        id: i.id,
+        folder: plannedFolder(target, i.path),
+        name: i.file.name,
+        size: i.file.size
+      }));
+
+  /* "Upload them again anyway" withholds the index, which is what turns off the
+     already-uploaded half of the check. Duplicates WITHIN one batch are dropped
+     either way: nobody wants the same file sent twice in one go. */
+  const decide = (queue: Item[], index: ExistingIndex | null) =>
+    skipDecisions(candidates(queue), reupload ? null : index);
+
+  useEffect(() => {
+    // Nothing moves mid-batch: target and the checkbox are disabled while busy,
+    // and recomputing here would fight the progress patches for the same rows.
+    if (busy) return;
+    const skip = decide(itemsRef.current, existingRef.current?.index ?? null);
+    setItems((prev) => {
+      let changed = false;
+      const next = prev.map((i) => {
+        const nextSkip = skip.get(i.id);
+        /* A row that failed but the fresh lookup now finds saved: it did land
+           after all (a registration whose reply was lost). Clear the stale error
+           and the landed state and let it read "Already uploaded", so it is
+           neither counted as failed nor sent again by Retry. */
+        const resolved = nextSkip === "already" && i.status === "error";
+        if (i.skip === nextSkip && !resolved) return i;
+        changed = true;
+        return resolved
+          ? { ...i, skip: nextSkip, status: "queued" as ItemStatus, pct: 0, error: undefined, landed: undefined }
+          : { ...i, skip: nextSkip };
+      });
+      return changed ? next : prev;
+    });
+    // decide() is rebuilt every render; the inputs that matter are listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, queueRev, target, existingRev, reupload]);
+
+  // Asked once the queue is non-empty, so the count is on screen before Upload
+  // is pressed rather than appearing as files start disappearing.
+  useEffect(() => {
+    if (!me || busy || itemsRef.current.length === 0) return;
+    void ensureExisting(false);
+  }, [me, busy, queueRev, ensureExisting]);
 
   const addFiles = (incoming: DroppedFile[]) => {
     if (incoming.length === 0) return;
@@ -390,12 +565,16 @@ export default function PublicUploadPage() {
         pct: 0
       }))
     ]);
+    setQueueRev((n) => n + 1);
   };
 
   const patch = (id: string, next: Partial<Item>) =>
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...next } : i)));
 
-  const removeItem = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
+  const removeItem = (id: string) => {
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    setQueueRev((n) => n + 1);
+  };
 
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -404,7 +583,17 @@ export default function PublicUploadPage() {
     addFiles(await readDataTransfer(e.dataTransfer));
   };
 
-  const pending = useMemo(() => items.filter((i) => i.status === "queued" || i.status === "error"), [items]);
+  const waiting = useMemo(() => items.filter((i) => i.status === "queued" || i.status === "error"), [items]);
+  const pending = useMemo(() => waiting.filter((i) => !i.skip), [waiting]);
+  const alreadyCount = useMemo(() => waiting.filter((i) => i.skip === "already").length, [waiting]);
+  const duplicateCount = useMemo(() => waiting.filter((i) => i.skip === "duplicate").length, [waiting]);
+  /* Rows the retry button would actually send: one marked skip is not sent,
+     however it got there (a file that errored and turned out to be registered
+     after all is marked "already" by the next lookup). */
+  const failedCount = useMemo(
+    () => waiting.filter((i) => i.status === "error" && !i.skip).length,
+    [waiting]
+  );
   const doneCount = useMemo(() => items.filter((i) => i.status === "done").length, [items]);
   const queueBytes = useMemo(() => items.reduce((sum, i) => sum + i.file.size, 0), [items]);
 
@@ -429,7 +618,7 @@ export default function PublicUploadPage() {
 
   const handleUpload = async () => {
     if (!info || !me || !auth) return;
-    if (pending.length === 0) {
+    if (waiting.length === 0) {
       setNotice("Add photos, videos or a folder first.");
       return;
     }
@@ -440,7 +629,30 @@ export default function PublicUploadPage() {
     setNotice("");
     setBlocked("");
 
-    const queue = [...pending];
+    /* The skip list is settled against a FRESH answer, not against whatever was
+       on screen: a batch that ran ten minutes ago has changed what we hold, and
+       the point of the check is that this batch does not pay for it twice. */
+    const existingIndex = await ensureExisting(false);
+    const skip = decide(itemsRef.current, existingIndex);
+    setItems((prev) => prev.map((i) => ({ ...i, skip: skip.get(i.id) })));
+
+    const queue = waiting.filter((i) => !skip.has(i.id));
+    const skippedAlready = waiting.filter((i) => skip.get(i.id) === "already").length;
+    const skippedDuplicate = waiting.filter((i) => skip.get(i.id) === "duplicate").length;
+    const skipped = skippedAlready + skippedDuplicate;
+
+    if (queue.length === 0) {
+      abort.current = null;
+      setBusy(false);
+      setNotice(
+        `Nothing to upload — all ${skipped} file${skipped !== 1 ? "s" : ""} in the queue ${
+          skipped !== 1 ? "are" : "is"
+        } already uploaded, or a second copy of another file in it.` +
+          (skippedAlready > 0 ? ' Tick "Upload them again anyway" if you need another copy.' : "")
+      );
+      return;
+    }
+
     const eventId = info.event.id;
     const batchBytes = queue.reduce((sum, i) => sum + i.file.size, 0);
 
@@ -460,6 +672,15 @@ export default function PublicUploadPage() {
     let stoppedBecause = "";
     let cancelled = 0;
     let thumbFailures = 0;
+    /* Files in a row whose request never reached Velocity. The batch gives up at
+       MAX_CONSECUTIVE_OFFLINE: with retries, a dead connection otherwise costs
+       three attempts and ~10 s of backoff per file for the whole folder, and the
+       person holding the phone cannot tell that from uploading. */
+    let offline = 0;
+    /* Whether every failure in the current offline run landed its bytes. Decides
+       which message the breaker shows: all landed → Velocity couldn't record
+       them; any genuine send failure in the run → files didn't send. */
+    let offlineAllLanded = true;
 
     for (let index = 0; index < queue.length; index += 1) {
       if (controller.signal.aborted) {
@@ -469,7 +690,12 @@ export default function PublicUploadPage() {
       }
 
       const item = queue[index];
-      patch(item.id, { status: "uploading", pct: 0, error: undefined });
+      /* The file is already in storage and only its row is missing, so the whole
+         of "try again" is the one POST that did not finish — see
+         RegistrationFailure. The bar sits at 100 because the upload part of this
+         row genuinely is done. */
+      const landed = item.landed;
+      patch(item.id, { status: "uploading", pct: landed ? 100 : 0, error: undefined, attempt: 1 });
 
       /* Every patch walks the whole queue and re-renders the list, and a
          four-thousand-file shoot makes that the most frequent work on the page.
@@ -477,7 +703,18 @@ export default function PublicUploadPage() {
       let shownPct = 0;
 
       try {
-        const { derivativeFailures } = await uploadMediaFile({
+        if (landed) {
+          /* The same headers the upload carried: the link credentials are what
+             authorise this contributor, and the route is idempotent on
+             (eventId, fileUrl), so asking again cannot create a second row. */
+          await registerUpload(landed, auth, controller.signal);
+          patch(item.id, { status: "done", pct: 100, landed: undefined });
+          offline = 0;
+          offlineAllLanded = true;
+          continue;
+        }
+
+        const { derivativeFailures } = await uploadMediaFileWithRetry({
           file: item.file,
           eventId,
           /* Relative to THIS person's folder — the server prepends the firm and
@@ -486,6 +723,12 @@ export default function PublicUploadPage() {
           relativePath: joinPath(target, item.path),
           headers: auth,
           signal: controller.signal,
+          /* A retry starts the file from scratch — new previews, a new key — so
+             the bar goes back to zero rather than appearing to run backwards. */
+          onAttempt: (attempt) => {
+            shownPct = 0;
+            patch(item.id, { pct: 0, attempt });
+          },
           onProgress: (pct) => {
             if (pct < 100 && pct - shownPct < 2) return;
             shownPct = pct;
@@ -494,6 +737,8 @@ export default function PublicUploadPage() {
         });
         thumbFailures += derivativeFailures;
         patch(item.id, { status: "done", pct: 100 });
+        offline = 0;
+        offlineAllLanded = true;
       } catch (err) {
         if (controller.signal.aborted) {
           cancelled = queue.length - index;
@@ -502,7 +747,24 @@ export default function PublicUploadPage() {
         }
 
         const message = err instanceof Error ? err.message : "Upload failed";
-        patch(item.id, { status: "error", error: message });
+        /* The row says what actually happened and how many goes it had, rather
+           than "failed": a wall of identical generic errors is what let ~290
+           missing videos go unnoticed for two days. */
+        /* Remembered on the row, not just described in it: this is what makes the
+           next press of Retry a registration rather than another whole upload. A
+           retry that fails again comes back as a RegistrationFailure of its own,
+           so the state is refreshed rather than lost. */
+        /* Keep the landed state only while another registration POST could still
+           record the bytes. Only a 422 means the object is no
+           good (422: storage says the object is not there), so drop it and let Retry
+           re-upload the file — failureReason switches to the server's sentence to
+           match. */
+        const landedPending = pendingRegistration(err) ?? landed;
+        patch(item.id, {
+          status: "error",
+          error: failureReason(err),
+          landed: landedPending && landedBytesUsable(err) ? landedPending : undefined
+        });
         failures += 1;
 
         /* Out of space, or too much already in flight, is not a per-file
@@ -511,6 +773,26 @@ export default function PublicUploadPage() {
         if (isQuotaError(err)) {
           stopped = queue.length - index - 1;
           stoppedBecause = message;
+          for (const rest of queue.slice(index + 1)) patch(rest.id, { status: "queued", pct: 0 });
+          break;
+        }
+
+        /* Nor is a connection that has gone. Counted rather than acted on at the
+           first one: a single file nobody can reach is bad luck, five in a row is
+           the network, and anything that succeeds resets it. */
+        if (isOfflineError(err)) {
+          offline += 1;
+          /* A landed failure is Velocity unreachable for the record; a bare
+             status 0 is unreachable for the file itself. Both count, but only an
+             all-landed run earns the "reaching storage" message. */
+          if (pendingRegistration(err) === null) offlineAllLanded = false;
+        } else {
+          offline = 0;
+          offlineAllLanded = true;
+        }
+        if (offline >= MAX_CONSECUTIVE_OFFLINE) {
+          stopped = queue.length - index - 1;
+          stoppedBecause = offlineAllLanded ? OFFLINE_LANDED_MESSAGE : OFFLINE_MESSAGE;
           for (const rest of queue.slice(index + 1)) patch(rest.id, { status: "queued", pct: 0 });
           break;
         }
@@ -525,10 +807,23 @@ export default function PublicUploadPage() {
     await loadMe(true);
     void loadFolders();
     void loadGallery(true);
+    /* What we hold has changed, so the next batch must not be judged against the
+       list from before this one. */
+    void ensureExisting(true);
+
+    /* Said out loud at the end as well as before the batch: "392 uploaded" out
+       of a 704-file folder is alarming unless the other 312 are accounted for. */
+    const parts: string[] = [];
+    if (skippedAlready > 0) parts.push(`${skippedAlready} already uploaded`);
+    if (skippedDuplicate > 0) parts.push(`${skippedDuplicate} listed twice in this batch`);
+    const alsoSkipped = parts.length
+      ? ` ${skipped} file${skipped !== 1 ? "s" : ""} skipped: ${parts.join(" and ")}.`
+      : "";
 
     if (cancelled > 0) {
       setNotice(
-        `Stopped. ${cancelled} file${cancelled !== 1 ? "s are" : " is"} still queued — press Upload to carry on.`
+        `Stopped. ${cancelled} file${cancelled !== 1 ? "s are" : " is"} still queued — press Upload to carry on.` +
+          alsoSkipped
       );
       return;
     }
@@ -538,11 +833,13 @@ export default function PublicUploadPage() {
          ceilings clear themselves in minutes and name whose limit it was, so
          the two must not share a sentence. The server knows which it is, so
          its message is shown verbatim and only the queue count is added. */
-      const waiting = `${stopped} file${stopped !== 1 ? "s are" : " is"} still queued.`;
+      const stillQueued = `${stopped} file${stopped !== 1 ? "s are" : " is"} still queued.`;
       setBlocked(
         stoppedBecause.startsWith(QUOTA_MESSAGE)
-          ? `${info.firm.name}'s storage allowance is full, so the upload stopped — ${waiting} Ask ${info.firm.name} to have Velocity free up room before trying again.`
-          : `${stoppedBecause} The upload stopped, so ${waiting} Press Upload to carry on once it clears.`
+          ? `${info.firm.name}'s storage allowance is full, so the upload stopped — ${stillQueued} Ask ${info.firm.name} to have Velocity free up room before trying again.`
+          : stoppedBecause === OFFLINE_LANDED_MESSAGE
+            ? `${stoppedBecause} ${stillQueued}`
+            : `${stoppedBecause} The upload stopped, so ${stillQueued} Press Upload to carry on once it clears.`
       );
       return;
     }
@@ -551,7 +848,11 @@ export default function PublicUploadPage() {
     setNotice(
       (failures === 0
         ? `${ok} file${ok !== 1 ? "s" : ""} uploaded.`
-        : `${ok} uploaded, ${failures} failed. Press Upload again to retry the failures.`) +
+        : /* Not "sends just those": the button calls this same function, which
+             takes everything still waiting — the failures AND anything left
+             queued behind them. */
+          `${ok} uploaded, ${failures} failed. Each row says what went wrong; "Retry failed files" below sends them, along with anything still queued.`) +
+        alsoSkipped +
         (thumbFailures > 0
           ? ` ${thumbFailures} preview image${
               thumbFailures !== 1 ? "s" : ""
@@ -775,6 +1076,39 @@ export default function PublicUploadPage() {
           }}
         />
 
+        {/* Said plainly BEFORE the upload starts, with the count, because the
+            alternative is files quietly not being sent and nobody knowing which.
+            The checkbox is the way out for the one legitimate case: a file that
+            genuinely needs sending again. */}
+        {!busy && (alreadyCount > 0 || duplicateCount > 0) && (
+          <div className="up-skip">
+            <span>
+              {alreadyCount > 0 && (
+                <>
+                  <strong>
+                    {alreadyCount} of {waiting.length} file{waiting.length !== 1 ? "s" : ""}
+                  </strong>{" "}
+                  {alreadyCount !== 1 ? "are" : "is"} already uploaded and will be skipped.
+                </>
+              )}
+              {duplicateCount > 0 && (
+                <>
+                  {alreadyCount > 0 ? " " : ""}
+                  {duplicateCount} file{duplicateCount !== 1 ? "s are" : " is"} listed twice in this batch; only one
+                  copy will be sent.
+                </>
+              )}
+            </span>
+            {alreadyCount > 0 && (
+              <label className="checkbox-option">
+                <input type="checkbox" checked={reupload} onChange={(e) => setReupload(e.target.checked)} />
+                Upload them again anyway
+              </label>
+            )}
+          </div>
+        )}
+        {existingError && <span className="cell-meta">{existingError}</span>}
+
         {items.length > 0 && (
           <>
             <div className="uploader-list">
@@ -788,7 +1122,10 @@ export default function PublicUploadPage() {
                 </span>
               </div>
               {shown.map((item) => (
-                <div key={item.id} className={`uploader-row uploader-${item.status}`}>
+                <div
+                  key={item.id}
+                  className={`uploader-row uploader-${item.status}${item.skip ? " uploader-skipped" : ""}`}
+                >
                   <span className="uploader-name" title={item.path ? `${item.path}/${item.file.name}` : item.file.name}>
                     {item.file.name}
                     {item.path && <span className="uploader-folder">{item.path}</span>}
@@ -798,8 +1135,16 @@ export default function PublicUploadPage() {
                     {item.file.size > MULTIPART_THRESHOLD && <span className="uploader-parts"> · in parts</span>}
                   </span>
                   <span className="uploader-state">
-                    {item.status === "queued" && "Queued"}
-                    {item.status === "uploading" && `${item.pct}%`}
+                    {item.status === "queued" &&
+                      (item.skip === "already"
+                        ? "Already uploaded"
+                        : item.skip === "duplicate"
+                          ? "Listed twice"
+                          : "Queued")}
+                    {item.status === "uploading" &&
+                      (item.attempt && item.attempt > 1
+                        ? `Try ${item.attempt} of ${MAX_FILE_ATTEMPTS} · ${item.pct}%`
+                        : `${item.pct}%`)}
                     {item.status === "done" && "Uploaded"}
                     {item.status === "error" && (item.error ?? "Failed")}
                   </span>
@@ -858,11 +1203,23 @@ export default function PublicUploadPage() {
               Stop
             </button>
           )}
+          {/* Sends the files that failed — and, deliberately, anything still
+              queued behind them, because this calls the same handler as Upload.
+              The files that landed are "done" and are never in `pending`, so
+              nothing that succeeded can be sent a second time by pressing it. */}
+          {!busy && failedCount > 0 && (
+            <button className="btn-outline" type="button" onClick={() => void handleUpload()}>
+              Retry {failedCount} failed file{failedCount !== 1 ? "s" : ""}
+            </button>
+          )}
           {!busy && items.length > doneCount && doneCount > 0 && (
             <button
               className="btn-outline"
               type="button"
-              onClick={() => setItems((prev) => prev.filter((i) => i.status !== "done"))}
+              onClick={() => {
+                setItems((prev) => prev.filter((i) => i.status !== "done"));
+                setQueueRev((n) => n + 1);
+              }}
             >
               Clear uploaded
             </button>

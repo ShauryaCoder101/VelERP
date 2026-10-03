@@ -3,6 +3,7 @@ import { getRequestUser } from "../../../../../lib/rbac-server";
 import { PHOTOGRAPHER_QUOTA_BYTES } from "../../../../../lib/photographers";
 import { firmFolderName } from "../../../../../lib/upload-links";
 import { LINK_SELECT, linkDetails, mainAccountStats } from "../../../../../lib/upload-link-stats";
+import { firmUploadHealth, type FirmUploadHealth } from "../../../../../lib/upload-health";
 
 /* Everything one firm has done, for staff: its links, the people behind them,
  * the folders and loose files each of them produced, and what the main login
@@ -52,9 +53,21 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     orderBy: { createdAt: "desc" }
   });
 
-  const [details, mainAccount] = await Promise.all([
+  /* Did this firm's last day of uploading actually work?
+   *
+   * Everything else on this page counts what ARRIVED, which is precisely why
+   * nobody spotted 1 October: the file count and the quota bar both went up
+   * while ~290 videos were failing at the final step. This is the other half of
+   * that sentence, and it is three aggregates scoped to one account.
+   *
+   * Non-fatal: a firm's links and folders are the point of the page, and a
+   * health query that cannot run must not take them down with it. Null then
+   * means "we could not tell", which the page renders as nothing rather than as
+   * a reassuring row of zeros. */
+  const [details, mainAccount, health] = await Promise.all([
     linkDetails(links, folder),
-    mainAccountStats(photographer.id, folder)
+    mainAccountStats(photographer.id, folder),
+    firmUploadHealth(photographer.id).catch((): FirmUploadHealth | null => null)
   ]);
 
   return Response.json({
@@ -73,6 +86,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
       allocatedBytes: Number(photographer.photographerProfile?.allocatedBytes ?? 0n)
     },
     links: details,
-    mainAccount
+    mainAccount,
+    health
   });
 }

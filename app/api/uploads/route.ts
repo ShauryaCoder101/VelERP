@@ -5,6 +5,7 @@ import { getUploadActor, keyWithinRoot } from "../../../lib/upload-links";
 import { getProfile, resolveForUrl } from "../../../lib/storage";
 import { hasEventAccess } from "../../../lib/photographers";
 import { settleRegistered } from "../../../lib/upload-charges";
+import { logUploadFailure } from "../../../lib/upload-health";
 
 export async function GET(request: Request) {
   // Employees only: a photographer must not be able to enumerate other shoots.
@@ -128,23 +129,64 @@ export async function POST(request: Request) {
       new HeadObjectCommand({ Bucket: resolved.profile.bucket, Key: resolved.key })
     );
     sizeBytes = typeof head.ContentLength === "number" ? BigInt(head.ContentLength) : null;
-  } catch {
-    return Response.json({ error: "That file did not finish uploading" }, { status: 400 });
+  } catch (error) {
+    /* This 400 is the LAST step of an upload the client thinks succeeded, and it
+       is indistinguishable at the browser from every other 400 above. A 404
+       means the object genuinely is not there; anything else means we could not
+       ask, and the two want different answers from whoever is debugging it. */
+    logUploadFailure({
+      route: "uploads",
+      action: "register:head",
+      userId: uploader.id,
+      eventId,
+      key: resolved.key,
+      error
+    });
+    /* Two different answers, because the browser acts on them differently:
+       422 = the object genuinely is not there, so the client must send it again;
+       503 = we could not ask storage, so the client retries THIS call and keeps
+       the bytes it already sent (lib/media-upload.ts landedBytesUsable). Lumping
+       them into one 400 made a storage hiccup look like "upload the 40 GB again". */
+    const missing =
+      (error as { name?: string }).name === "NotFound" ||
+      (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404;
+    return missing
+      ? Response.json({ error: "That file did not finish uploading" }, { status: 422 })
+      : Response.json({ error: "Couldn't check the file in storage. Please try again." }, { status: 503 });
   }
 
-  const upload = await prisma.upload.create({
-    data: {
+  let upload;
+  try {
+    upload = await prisma.upload.create({
+      data: {
+        eventId,
+        fileUrl,
+        fileType: body.fileType,
+        // The FIRM owns the file either way — quota, grant and folder are all
+        // theirs. contributorId is the only thing that records which of their
+        // people actually sent it.
+        uploadedBy: uploader.id,
+        contributorId: uploader.contributor?.id ?? null,
+        sizeBytes
+      }
+    });
+  } catch (error) {
+    /* The worst failure in the whole flow: the object IS in storage, the quota
+       has been spent, and no row claims it — so the gallery will never show it
+       and the sweep will settle the charge as "landed", which looks like a
+       completed upload from every angle. Logged and rethrown; the client sees a
+       500 and retries, which is idempotent on (event, URL). */
+    logUploadFailure({
+      route: "uploads",
+      action: "register:create",
+      userId: uploader.id,
       eventId,
-      fileUrl,
-      fileType: body.fileType,
-      // The FIRM owns the file either way — quota, grant and folder are all
-      // theirs. contributorId is the only thing that records which of their
-      // people actually sent it.
-      uploadedBy: uploader.id,
-      contributorId: uploader.contributor?.id ?? null,
-      sizeBytes
-    }
-  });
+      key: resolved.key,
+      error
+    });
+    throw error;
+  }
+
   await settle();
   return Response.json({ ...upload, sizeBytes: sizeBytes === null ? null : Number(sizeBytes) });
 }

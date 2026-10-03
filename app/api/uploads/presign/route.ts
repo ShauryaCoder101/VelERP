@@ -18,6 +18,7 @@ import {
   type UnsettledTier
 } from "../../../../lib/upload-charges";
 import { signReservation } from "../../../../lib/uploadReservation";
+import { logUploadFailure } from "../../../../lib/upload-health";
 
 /* A signed Content-Length is the whole enforcement mechanism.
  *
@@ -305,6 +306,18 @@ export async function POST(request: Request) {
        refund rides on the same once-only claim a sweep would use — otherwise a
        signing failure and a sweep that reached the row first could each pay it. */
     await refundCharges(chargeIds).catch(() => {});
+    /* Logged before the rethrow. A signing failure is invisible from the
+       outside: the browser reports "upload failed" for a file that never got as
+       far as a PUT, and the only trace left behind is a refunded UploadCharge
+       row that looks exactly like a closed tab. */
+    logUploadFailure({
+      route: "uploads/presign",
+      action: "sign",
+      userId: uploader.id,
+      eventId,
+      key,
+      error
+    });
     throw error;
   }
 }

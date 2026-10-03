@@ -63,11 +63,23 @@ type MainAccountStats = {
   lastUploadAt: string | null;
 };
 
+/* Null when the server could not work it out — rendered as nothing, not as
+   zeros, because "no failures" and "we could not tell" are different claims. */
+type Health = {
+  windowHours: number;
+  filesUploaded: number;
+  largeFailed: number;
+  smallMissing: number;
+  failedBytes: number;
+  lastFailureAt: string | null;
+} | null;
+
 type Activity = {
   photographer: { id: string; uid: string; name: string; folder: string; status: string };
   quota: { quotaBytes: number; allocatedBytes: number };
   links: LinkDetail[];
   mainAccount: MainAccountStats[];
+  health: Health;
 };
 
 const GB = 1_000_000_000;
@@ -246,8 +258,14 @@ export default function PhotographerDetailPage() {
     );
   }
 
-  const { photographer, quota } = data;
+  const { photographer, quota, health } = data;
   const pct = quota.quotaBytes > 0 ? Math.min(100, (quota.allocatedBytes / quota.quotaBytes) * 100) : 0;
+
+  /* The quota bar says how much arrived. This says how much DIDN'T, which is the
+     thing nobody could see on 1 October: the bar went up all day while ~290
+     videos were failing at the final step. Warning tone only when something
+     actually failed — a line that is always orange is a line nobody reads. */
+  const troubled = health !== null && (health.largeFailed > 0 || health.smallMissing > 0);
 
   return (
     <>
@@ -295,6 +313,23 @@ export default function PhotographerDetailPage() {
                 style={{ width: `${pct}%` }}
               />
             </div>
+            {health !== null && (
+              /* Inline rather than a class: this is one line in one place, and
+                 the warning colour is the same #d18b00 .pd-quota-fill.warn uses. */
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  fontSize: 11.5,
+                  lineHeight: 1.45,
+                  color: troubled ? "#d18b00" : "var(--ink-soft)"
+                }}
+              >
+                Last {health.windowHours} h: {plural(health.filesUploaded, "file")} uploaded ·{" "}
+                {plural(health.largeFailed, "large file")} failed ·{" "}
+                {health.smallMissing} small file{health.smallMissing === 1 ? "" : "s"} didn&apos;t arrive
+                {troubled && health.lastFailureAt ? ` · last ${shortDateTime(health.lastFailureAt)}` : ""}
+              </p>
+            )}
           </div>
         </div>
       </section>

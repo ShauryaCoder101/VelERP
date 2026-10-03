@@ -211,6 +211,54 @@ export async function sendUploadEmail(opts: {
   }
 }
 
+/* "Uploads are failing" — the mail that should have gone out on 1 October.
+ *
+ * Addressed to the Managing Director and Head of Operations, so it is internal
+ * and may name firms and their UIDs. Every row is escaped: `who` carries a
+ * photographer's display name and `detail` carries whatever else we were told
+ * about them, and a firm's name is typed by staff into a form, not validated as
+ * markup. Also never throws, like the rest of this file — an alert that cannot
+ * be delivered must not take the daily cron down with it. */
+export async function sendUploadAlertEmail(opts: {
+  to: string;
+  recipientName: string;
+  windowLabel: string;
+  rows: { who: string; detail: string; hint: string }[];
+  footer?: string;
+}) {
+  const t = getTransporter();
+  if (!t) {
+    console.warn(
+      `SMTP not configured — would alert ${opts.to}: uploads failing for ${opts.rows.length} account(s)`
+    );
+    return false;
+  }
+
+  const count = opts.rows.length;
+
+  try {
+    await t.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: opts.to,
+      subject: `Uploads are failing — ${count} account${count !== 1 ? "s" : ""}`,
+      html: shell(
+        "Uploads are failing",
+        `${escapeHtml(opts.recipientName)}, ${
+          count === 1 ? "an account has" : `${count} accounts have`
+        } been losing uploads in ${escapeHtml(opts.windowLabel)}. Nobody has necessarily noticed at their end.`,
+        opts.rows.map((row) =>
+          reminderRow(escapeHtml(row.who), `${escapeHtml(row.detail)}<br>${escapeHtml(row.hint)}`)
+        ),
+        opts.footer ? escapeHtml(opts.footer) : undefined
+      )
+    });
+    return true;
+  } catch (error: any) {
+    console.error(`upload alert email to ${opts.to} failed: ${error?.message ?? error}`);
+    return false;
+  }
+}
+
 export async function sendOtpEmail(to: string, otp: string) {
   const t = getTransporter();
   if (!t) {
