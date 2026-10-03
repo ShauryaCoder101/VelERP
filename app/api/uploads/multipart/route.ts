@@ -714,7 +714,10 @@ export async function POST(request: Request) {
          billed; leaving it claimable is what lets the client abort and get its
          bytes refunded through the one OPEN -> ABORTED transition. */
       const claim = await prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${session.key}::text))`;
+        /* $executeRaw, never $queryRaw: pg_advisory_xact_lock returns `void`,
+           which Prisma cannot deserialize, so $queryRaw threw here on every
+           complete and every multipart upload (>16 MB) was aborted. */
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${session.key}::text))`;
 
         /* Excludes this session's own row, which is what keeps the "completed
            but the response was lost" recovery below working. That case has one
