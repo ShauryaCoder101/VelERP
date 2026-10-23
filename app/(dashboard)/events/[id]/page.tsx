@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import EventMedia from "../../../components/EventMedia";
+import EventArtifacts from "../../../components/EventArtifacts";
 
 type UploadItem = {
   id: string;
@@ -838,6 +839,10 @@ export default function EventDetailPage() {
       </section>
 
       <EventMedia eventId={ev.id} uploads={ev.uploads} onUploaded={loadEvent} />
+
+      {/* Artifacts load and save themselves — they are not part of the event
+          payload, and deliberately not part of `uploads`. */}
+      <EventArtifacts eventId={ev.id} />
 
       {/* Closing Sheet - bottom */}
       <section className="panel closing-sheet-panel" style={{ marginTop: 16 }}>

@@ -21,6 +21,7 @@ import { MULTIPART_THRESHOLD, partSizeFor } from "../../../../lib/upload-client"
 import { allocateQuota, claimSweepSlot, hasEventAccess, releaseQuota } from "../../../../lib/photographers";
 import { PART_EXPIRY_SECONDS, sweepFirmMultipart } from "../../../../lib/multipart-janitor";
 import { uploadHmacKey, verifyReservation } from "../../../../lib/uploadReservation";
+import { ARTIFACT_KEY_ROOT, artifactEventPrefix } from "../../../../lib/event-artifacts";
 import { logUploadFailure } from "../../../../lib/upload-health";
 
 /* Multipart upload for anything large enough that losing it midway hurts.
@@ -434,7 +435,24 @@ export async function POST(request: Request) {
          their folder, or the firm's root. The root check is what separates
          them. Applied to the freshly built key too, which costs nothing and
          means there is one place this rule lives rather than two. */
-      if (!keyWithinRoot(key, eventId, uploader.uploadRoot)) {
+      /* Event artifacts (/api/events/[id]/artifacts/presign) come through this
+         same route for anything over the threshold, and share the media bucket
+         — but their keys sit under `artifacts/<eventId>/`, deliberately outside
+         the `uploads/` tree the galleries, client share links and ZIPs read.
+         keyWithinRoot only knows that tree, so the artifact prefix is confined
+         here instead: employees only, and inside this event's own prefix. A
+         photographer or a link contributor can never be holding such a
+         reservation — the artifact presign is employees-only and the key is
+         inside the HMAC — so this is the second lock on that door rather than
+         the first. Nothing else changes: artifacts carry purpose "media"
+         (the bucket), employees are never charged, and the keyState single-use
+         check, the advisory lock and the refunds above and below are untouched. */
+      const confined = key.startsWith(`${ARTIFACT_KEY_ROOT}/`)
+        ? !uploader.isPhotographer &&
+          !uploader.contributor &&
+          key.startsWith(artifactEventPrefix(eventId))
+        : keyWithinRoot(key, eventId, uploader.uploadRoot);
+      if (!confined) {
         return Response.json({ error: "That folder is not yours to upload to" }, { status: 403 });
       }
 

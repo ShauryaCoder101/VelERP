@@ -84,6 +84,9 @@ model User {
   revokedUploadLinks  UploadLink[]   @relation("UploadLinkRevokedBy")
   createdMediaFolders MediaFolder[]  @relation("MediaFolderCreatedBy")
   uploadCharges       UploadCharge[]
+
+  eventArtifacts        EventArtifact[] @relation("EventArtifactUploadedBy")
+  deletedEventArtifacts EventArtifact[] @relation("EventArtifactDeletedBy")
 }
 
 model Session {
@@ -122,6 +125,7 @@ model Event {
   photographerAccess PhotographerEventAccess[]
   uploadLinks        UploadLink[]
   mediaFolders       MediaFolder[]
+  artifacts          EventArtifact[]
 }
 
 model Vendor {
@@ -324,6 +328,66 @@ model Upload {
    * per-link stats) as a bonus.
    */
   @@index([eventId, fileUrl])
+}
+
+/// The five kinds of working document an event accumulates. Fixed set, fixed
+/// order — the UI renders one tab per value in this order.
+enum ArtifactCategory {
+  PPT
+  EVENT_FLOW
+  CREATIVES
+  LAYOUTS
+  CUSTOMER_DATA
+}
+
+/**
+ * A working document attached to an event: a pitch deck, a run-of-show, a
+ * creative, a layout, a customer list.
+ *
+ * Deliberately NOT an Upload row, and deliberately not under the uploads/ key
+ * prefix. Upload is the event's MEDIA — the gallery reads it, client share
+ * links serve it, the ZIP builder packs it and photographers see their own rows
+ * in it. An internal pitch deck must appear in none of those, and the cheapest
+ * way to guarantee that is for it to live in a different table under a
+ * different prefix rather than in the same table behind a flag somebody has to
+ * remember to filter on.
+ *
+ * Every employee may see and upload; only the uploader or the Managing Director
+ * may delete.
+ */
+model EventArtifact {
+  id       String           @id @default(uuid())
+  eventId  String
+  category ArtifactCategory
+  /// Canonical storage URL, the same form Upload.fileUrl takes: publicBaseUrl + "/" + key.
+  fileUrl  String
+  /// The name the file had on the uploader's machine. Stored rather than parsed
+  /// back out of the key, because the key is sanitised and stamped and the
+  /// person looking for "Pitch v4 (final).pptx" needs to see that.
+  fileName String
+  fileType String
+  /// Read from storage at registration; nullable because a HEAD can answer
+  /// without a length.
+  sizeBytes BigInt?
+  uploadedById String
+  createdAt    DateTime @default(now())
+  /// Soft delete. The row survives so WHO deleted WHAT stays on record even
+  /// though the object itself is removed from storage at the same moment.
+  deletedAt   DateTime?
+  deletedById String?
+
+  event      Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  /// Restrict, as on Upload: an account that uploaded artifacts cannot be
+  /// deleted out from under them.
+  uploadedBy User  @relation("EventArtifactUploadedBy", fields: [uploadedById], references: [id])
+  /// SetNull: the deletion record outlives the employee who made it.
+  deletedBy  User? @relation("EventArtifactDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  /// Registration is idempotent on (event, URL) — a retried POST after a
+  /// timeout must not produce a second row for one object.
+  @@unique([eventId, fileUrl])
+  /// The only read on the hot path: one event's live artifacts, by category.
+  @@index([eventId, category, deletedAt])
 }
 
 model Task {
